@@ -286,7 +286,7 @@ def exportFlatClusterData(filename, new_row_header,new_column_header,xt,ind1,ind
     export_text = open(filename,'w')
     column_header = string.join(['UID','row_clusters-flat']+new_column_header,'\t')+'\n' ### format column-names for export
     export_text.write(column_header)
-    column_clusters = string.join(['column_clusters-flat','']+ map(str, ind2),'\t')+'\n' ### format column-flat-clusters for export
+    column_clusters = string.join(['column_clusters-flat','-']+ map(str, ind2),'\t')+'\n' ### format column-flat-clusters for export
     export_text.write(column_clusters)
 
     ### The clusters, dendrogram and flat clusters are drawn bottom-up, so we need to reverse the order to match
@@ -299,6 +299,30 @@ def exportFlatClusterData(filename, new_row_header,new_column_header,xt,ind1,ind
         export_text.write(string.join([new_row_header[i],str(ind1[i])]+map(str, row),'\t')+'\n')
         i+=1
     export_text.close()
+
+    ### Transpose text file for easier reading!
+    oldfile_h = open(filename, 'rb')
+
+    elements = [ line.split() for line in oldfile_h ]
+    oldfile_h.close()
+
+    biglist = []
+    for splitline in elements:
+        print len(splitline)
+        print splitline
+        biglist.append(splitline)
+    newarray = numpy.array(biglist)
+    print numpy.shape(newarray)
+    t_array = newarray.transpose()
+    print numpy.shape(t_array)
+    print newarray[:,0]
+
+    newfile_h = open(filename + "transposed.list" , 'w')
+    for row in t_array:
+        #print "The row is currently: %r" % row
+        newfile_h.write("\t".join(row) + "\n")
+    newfile_h.close()
+
 
     ### Export as CDT file
     filename = string.replace(filename,'.txt','.cdt')
@@ -386,9 +410,16 @@ def YellowBlackBlue():
     return my_cmap
 
 ################# General data import methods ######################################
-def normaliseData(x, center=True, norm_var=True):
+def normaliseData(x, center=True, norm_var=True, log_t=False):
     "center, normalize or both to the array x"
     n = len(x[0]); m = len(x) # m = 6 samples, n = 6000 genes
+
+    print x.min()
+    if log_t:
+        print "log2(FPKM + 1) transforming data"
+        for g in range(n):
+            for i in range(m):
+                x[:,g][i] = numpy.log2(x[:,g][i] + 1)
 
     print x.min()
     #print x
@@ -562,7 +593,7 @@ def analyse_pca(matrix, column_header, row_header, filename):
     plt.savefig(savename, dpi=200) #,dpi=100
     plt.show()
 
-def expression_dist(matrix, column_header, row_header, filename):
+def expression_dist(matrix, column_header, row_header, filename, max_x=500, min_x=0):
     "Creates histogram of gene expression"
 
     count = 0
@@ -570,7 +601,7 @@ def expression_dist(matrix, column_header, row_header, filename):
     for row in matrix:
         fig = plt.figure()
         subf = fig.add_subplot(111, title=row_header[count])
-        n, bins, patches = subf.hist(row, 50, histtype='stepfilled')
+        n, bins, patches = subf.hist(row, 50, range=(min_x,max_x), histtype='stepfilled')
         count += 1
     plt.show()
 
@@ -580,18 +611,20 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description="Performs heirarchical clustering")
     parser.add_argument("data_file", type=str, help="The data file for analysing")
-    parser.add_argument("-t", "--row_header", type=str, dest="row_header", default=False, help="Not sure why this was put here")
+    parser.add_argument("-z", "--row_header", type=str, dest="row_header", default=False, help="Not sure why this was put here")
     parser.add_argument("-R", "--row_method", type=str, dest="row_method", default='average', help="The clustering method for rows \n(single, average, complete, etc)")
     parser.add_argument("-C", "--column_method", type=str, dest="column_method", default='single', help="The clustering method for columns \n(single, average, complete, etc)")
     parser.add_argument("-r", "--row_metric", type=str, dest="row_metric", default='correlation', help="The distance metric for rows \n(euclidean, correlation, cosine, manhattan, etc)")
     parser.add_argument("-c", "--column_metric", type=str, dest="column_metric", default='correlation', help="The distance metric for columns \n(euclidean, correlation, manhattan, etc)")
     parser.add_argument("-g", "--color_gradient", type=str, dest="color_gradient", default='red_white_blue', help="The colour scheme \n(red_white_blue, red_black_sky, red_black_blue, \nred_black_green, yellow_black_blue, seismic, \ngreen_white_purple, coolwarm)")
     parser.add_argument("-m", "--magnitude", type=float, dest="filter", default=2.5, help="Filters out genes with magnitude of range less than value given. Default = 2.5")
-    parser.add_argument("-p", "--fpkm_max", type=int, dest="fpkm_max", default=1000000, help="Filters out genes with maximum fpkm greater than value given. Default = 1 000 000")
+    parser.add_argument("-p", "--fpkm_max", type=float, dest="fpkm_max", default=1000000, help="Filters out genes with maximum fpkm greater than value given. Default = 1 000 000")
     parser.add_argument("-q", "--fpkm_min", type=int, dest="fpkm_min", default=10, help="Filters out genes with maximum fpkm less than value given. Default = 10")
+    parser.add_argument("-t", "--transform", action='store_true', default=False, help="Turns on log2(FPKM + 1) transformation (prior to normalisation if selected).")
     parser.add_argument("-n", "--normalise_off", action='store_true', default=False, help="Turns off normalisation. Normalises by subtracting the mean and dividing by the (subtracted) standard deviation.")
     parser.add_argument("-u", "--centering_off", action='store_true', default=False, help="Turns off gene centering. Centering subtracts the mean from all values for a gene, giving mean = 0.")
     parser.add_argument("-f", "--filter_off", action='store_true', help="Turns off filtering. ")
+    parser.add_argument("-d", "--distribution", action='store_true', default=False, help="Shows FPKM distribution of each sample before and after normalisation")
     parser.add_argument("-P", "--pca", action='store_true',  help="Performs principal component analysis.")
     parser.add_argument("-T", "--transpose", action='store_true',  help="Transpose the matrix. Columns should represent genes, Rows samples")
     args = parser.parse_args()
@@ -616,13 +649,14 @@ if __name__ == '__main__':
     if not args.filter_off:
         matrix, column_header, row_header = filterData(matrix, column_header, row_header,  mag=args.filter, min_thresh=args.fpkm_min, max_thresh=args.fpkm_max)
 
-    expression_dist(matrix, column_header, row_header, args.data_file)
+    if args.distribution:
+        expression_dist(matrix, column_header, row_header, args.data_file)
 
-    if not args.centering_off:
-        if args.normalise_off:
-            normaliseData(matrix, norm_var=False)
-        else:
-            normaliseData(matrix)
+    normaliseData(matrix, center=not(args.centering_off), norm_var=not(args.normalise_off), log_t=args.transform)
+
+    if args.distribution:
+        expression_dist(matrix, column_header, row_header, args.data_file, min_x=-2, max_x=2)
+
 
 
     you_want = False    # change to True to swap the columns and rows (primarily visual).
