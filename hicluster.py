@@ -1,44 +1,51 @@
+#!/usr/bin/env python
+
 ### hierarchical_clustering.py
 #Copyright 2005-2012 J. David Gladstone Institutes, San Francisco California
 #Author Nathan Salomonis - nsalomonis@gmail.com
 
-#Permission is hereby granted, free of charge, to any person obtaining a copy 
-#of this software and associated documentation files (the "Software"), to deal 
-#in the Software without restriction, including without limitation the rights 
-#to use, copy, modify, merge, publish, distribute, sublicense, and/or sell 
-#copies of the Software, and to permit persons to whom the Software is furnished 
+#Permission is hereby granted, free of charge, to any person obtaining a copy
+#of this software and associated documentation files (the "Software"), to deal
+#in the Software without restriction, including without limitation the rights
+#to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+#copies of the Software, and to permit persons to whom the Software is furnished
 #to do so, subject to the following conditions:
 
-#THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, 
-#INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A 
-#PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT 
-#HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION 
-#OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE 
+#THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+#INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+#PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+#HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+#OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 #SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #################
 ### Imports an tab-delimited expression matrix and produces and hierarchically clustered heatmap
 #################
 
-import matplotlib.pyplot as pylab
-from matplotlib import mpl
+import string
+import time
+import sys, os, re
+import getopt
+import argparse
+
+import matplotlib.pyplot as plt
+import pylab
+import matplotlib as mpl
 import scipy
 import scipy.cluster.hierarchy as sch
 import scipy.spatial.distance as dist
 import numpy
-import string
-import time
-import sys, os
-import getopt
+import pca_module
 
 ################# Perform the hierarchical clustering #################
 
 def heatmap(x, row_header, column_header, row_method,
             column_method, row_metric, column_metric,
             color_gradient, filename):
-    
+
     print "\nPerforming hiearchical clustering using %s for columns and %s for rows" % (column_metric,row_metric)
-        
+
+
     """
     This below code is based in large part on the protype methods:
     http://old.nabble.com/How-to-plot-heatmap-with-matplotlib--td32534593.html
@@ -46,11 +53,11 @@ def heatmap(x, row_header, column_header, row_method,
 
     x is an m by n ndarray, m observations, n genes
     """
-    
+
     ### Define the color gradient to use based on the provided name
     n = len(x[0]); m = len(x)
     if color_gradient == 'red_white_blue':
-        cmap=pylab.cm.bwr
+        cmap=plt.cm.bwr
     if color_gradient == 'red_black_sky':
         cmap=RedBlackSkyBlue()
     if color_gradient == 'red_black_blue':
@@ -60,14 +67,15 @@ def heatmap(x, row_header, column_header, row_method,
     if color_gradient == 'yellow_black_blue':
         cmap=YellowBlackBlue()
     if color_gradient == 'seismic':
-        cmap=pylab.cm.seismic
+        cmap=plt.cm.seismic
     if color_gradient == 'green_white_purple':
-        cmap=pylab.cm.PiYG_r
+        cmap=plt.cm.PiYG_r
     if color_gradient == 'coolwarm':
-        cmap=pylab.cm.coolwarm
+        cmap=plt.cm.coolwarm
 
     ### Scale the max and min colors so that 0 is white/black
     vmin=x.min()
+    print "line 77: vmin = %.5f\nm = %d\nn = %d" % (vmin, m, n)
     vmax=x.max()
     vmax = max([vmax,abs(vmin)])
     vmin = vmax*-1
@@ -75,17 +83,17 @@ def heatmap(x, row_header, column_header, row_method,
 
     ### Scale the Matplotlib window size
     default_window_hight = 8.5
-    default_window_width = 12
-    fig = pylab.figure(figsize=(default_window_width,default_window_hight)) ### could use m,n to scale here
+    default_window_width = 16
+    fig = plt.figure(figsize=(default_window_width,default_window_hight)) ### could use m,n to scale here
     color_bar_w = 0.015 ### Sufficient size to show
-        
+
     ## calculate positions for all elements
     # ax1, placement of dendrogram 1, on the left of the heatmap
-    #if row_method != None: w1 = 
+    #if row_method != None: w1 =
     [ax1_x, ax1_y, ax1_w, ax1_h] = [0.05,0.22,0.2,0.6]   ### The second value controls the position of the matrix relative to the bottom of the view
     width_between_ax1_axr = 0.004
     height_between_ax1_axc = 0.004 ### distance between the top color bar axis and the matrix
-    
+
     # axr, placement of row side colorbar
     [axr_x, axr_y, axr_w, axr_h] = [0.31,0.1,color_bar_w,0.6] ### second to last controls the width of the side color bar - 0.015 when showing
     axr_x = ax1_x + ax1_w + width_between_ax1_axr
@@ -120,6 +128,22 @@ def heatmap(x, row_header, column_header, row_method,
         D2 = dist.squareform(d2)
         ax2 = fig.add_axes([ax2_x, ax2_y, ax2_w, ax2_h], frame_on=True)
         Y2 = sch.linkage(D2, method=column_method, metric=column_metric) ### array-clustering metric - 'average', 'single', 'centroid', 'complete'
+        """print "number of elements in Y2:", len(Y2)
+        for element in Y2:
+            for value in element:
+                if value < 0:
+                    print element"""
+        #print len(Y2), size(Y2)
+        numpy.clip(Y2[:,2], 0, 1, Y2[:,2])
+        #print len(Y2), size(Y2)
+        """print "number of elements in Y2 after clipping:", len(Y2)
+        for element in Y2:
+            for value in element:
+                if value < 0:
+                    print element
+
+        print "The minimum value in the distance matrix is: %r" % (numpy.min(Y2))
+        """
         Z2 = sch.dendrogram(Y2)
         ind2 = sch.fcluster(Y2,0.7*max(Y2[:,2]),'distance') ### This is the default behavior of dendrogram
         ax2.set_xticks([]) ### Hides ticks
@@ -128,7 +152,7 @@ def heatmap(x, row_header, column_header, row_method,
         print 'Column clustering completed in %s seconds' % time_diff
     else:
         ind2 = ['NA']*len(column_header) ### Used for exporting the flat cluster data
-        
+
     # Compute and plot left dendrogram.
     if row_method != None:
         start_time = time.time()
@@ -144,18 +168,22 @@ def heatmap(x, row_header, column_header, row_method,
         print 'Row clustering completed in %s seconds' % time_diff
     else:
         ind1 = ['NA']*len(row_header) ### Used for exporting the flat cluster data
-        
+
     # Plot distance matrix.
     axm = fig.add_axes([axm_x, axm_y, axm_w, axm_h])  # axes for the data matrix
     xt = x
     if column_method != None:
+
         idx2 = Z2['leaves'] ### apply the clustering for the array-dendrograms to the actual matrix data
         xt = xt[:,idx2]
-        ind2 = ind2[:,idx2] ### reorder the flat cluster to match the order of the leaves the dendrogram
+        ind2 = [ ind2[i] for i in idx2]
+
+        #ind2 = ind2[:,idx2] ### reorder the flat cluster to match the order of the leaves the dendrogram
     if row_method != None:
         idx1 = Z1['leaves'] ### apply the clustering for the gene-dendrograms to the actual matrix data
         xt = xt[idx1,:]   # xt is transformed x
-        ind1 = ind1[idx1,:] ### reorder the flat cluster to match the order of the leaves the dendrogram
+        ind1 = [ ind1[i] for i in idx1 ]
+        #ind1 = ind1[idx1,:] ### reorder the flat cluster to match the order of the leaves the dendrogram
     ### taken from http://stackoverflow.com/questions/2982929/plotting-results-of-hierarchical-clustering-ontop-of-a-matrix-of-data-in-python/3011894#3011894
     im = axm.matshow(xt, aspect='auto', origin='lower', cmap=cmap, norm=norm) ### norm=norm added to scale coloring of expression with zero = white or black
     axm.set_xticks([]) ### Hides x-ticks
@@ -175,11 +203,16 @@ def heatmap(x, row_header, column_header, row_method,
             new_row_header.append(row_header[i])
     for i in range(x.shape[1]):
         if column_method != None:
-            axm.text(i, -0.9, ' '+column_header[idx2[i]], rotation=270, verticalalignment="top") # rotation could also be degrees
-            new_column_header.append(column_header[idx2[i]])
+            #try:
+            #    print "i: %-3s idx[i]: %-5s column_header[idx2[i]]: %s" % (i, idx2[i], column_header[idx2[i]])
+            #except:
+            #    print "i: %s idx[i]: %s" % (i, idx2[i])
+            axm.text(i, -0.9, ' '+column_header[idx2[i]-1], rotation=270, verticalalignment="top") # PO added -1 to idx2 indexing rotation could also be degrees
+            new_column_header.append(column_header[idx2[i]-1]) #PO added -1 to idx2[i] indexing
         else: ### When not clustering columns
             axm.text(i, -0.9, ' '+column_header[i], rotation=270, verticalalignment="top")
             new_column_header.append(column_header[i])
+
 
     # Plot colside colors
     # axc --> axes for column side colorbar
@@ -187,11 +220,11 @@ def heatmap(x, row_header, column_header, row_method,
         axc = fig.add_axes([axc_x, axc_y, axc_w, axc_h])  # axes for column side colorbar
         cmap_c = mpl.colors.ListedColormap(['r', 'g', 'b', 'y', 'w', 'k', 'm'])
         dc = numpy.array(ind2, dtype=int)
-        dc.shape = (1,len(ind2)) 
+        dc.shape = (1,len(ind2))
         im_c = axc.matshow(dc, aspect='auto', origin='lower', cmap=cmap_c)
         axc.set_xticks([]) ### Hides ticks
         axc.set_yticks([])
-    
+
     # Plot rowside colors
     # axr --> axes for row side colorbar
     if row_method != None:
@@ -208,28 +241,27 @@ def heatmap(x, row_header, column_header, row_method,
     axcb = fig.add_axes([axcb_x, axcb_y, axcb_w, axcb_h], frame_on=False)  # axes for colorbar
     cb = mpl.colorbar.ColorbarBase(axcb, cmap=cmap, norm=norm, orientation='horizontal')
     axcb.set_title("colorkey")
-    
-    if '/' in filename:
-        dataset_name = string.split(filename,'/')[-1][:-4]
-        root_dir = string.join(string.split(filename,'/')[:-1],'/')+'/'
-    else:
-        dataset_name = string.split(filename,'\\')[-1][:-4]
-        root_dir = string.join(string.split(filename,'\\')[:-1],'\\')+'\\'
-    filename = root_dir+'Clustering-%s-hierarchical_%s_%s.pdf' % (dataset_name,column_metric,row_metric)
+
+
+    dataset_name = os.path.basename(filename)[:-4]
+    root_dir = os.path.dirname(filename)
+
+    filename = root_dir + 'Clustering-%s-hierarchical_%s_%s.pdf' % (dataset_name,column_metric,row_metric)
     cb.set_label("Differential Expression (log2 fold)")
+    ind1 = ind1[::-1] # reverse order of flat cluster leaves to match samples in txt file.
     exportFlatClusterData(filename, new_row_header,new_column_header,xt,ind1,ind2)
 
     ### Render the graphic
     if len(row_header)>50 or len(column_header)>50:
-        pylab.rcParams['font.size'] = 5
+        plt.rcParams['font.size'] = 10 #5
     else:
-        pylab.rcParams['font.size'] = 8
+        plt.rcParams['font.size'] = 10 #8
 
-    pylab.savefig(filename)
+    plt.savefig(filename)
     print 'Exporting:',filename
     filename = filename[:-3]+'png'
-    pylab.savefig(filename, dpi=100) #,dpi=200
-    pylab.show()
+    plt.savefig(filename, dpi=200) #,dpi=100
+    plt.show()
 
 def getColorRange(x):
     """ Determines the range of colors, centered at zero, for normalizing cmap """
@@ -244,30 +276,30 @@ def getColorRange(x):
         return vmax,vmin
     else:
         return vmax,vmin
-    
-################# Export the flat cluster data #################
+
+################# Export the flat cluster data #####################################
 
 def exportFlatClusterData(filename, new_row_header,new_column_header,xt,ind1,ind2):
     """ Export the clustered results as a text file, only indicating the flat-clusters rather than the tree """
-    
+
     filename = string.replace(filename,'.pdf','.txt')
     export_text = open(filename,'w')
     column_header = string.join(['UID','row_clusters-flat']+new_column_header,'\t')+'\n' ### format column-names for export
     export_text.write(column_header)
     column_clusters = string.join(['column_clusters-flat','']+ map(str, ind2),'\t')+'\n' ### format column-flat-clusters for export
     export_text.write(column_clusters)
-    
+
     ### The clusters, dendrogram and flat clusters are drawn bottom-up, so we need to reverse the order to match
     new_row_header = new_row_header[::-1]
     xt = xt[::-1]
-    
+
     ### Export each row in the clustered data matrix xt
     i=0
     for row in xt:
         export_text.write(string.join([new_row_header[i],str(ind1[i])]+map(str, row),'\t')+'\n')
         i+=1
     export_text.close()
-    
+
     ### Export as CDT file
     filename = string.replace(filename,'.txt','.cdt')
     export_cdt = open(filename,'w')
@@ -275,7 +307,7 @@ def exportFlatClusterData(filename, new_row_header,new_column_header,xt,ind1,ind
     export_cdt.write(column_header)
     eweight = string.join(['EWEIGHT','','']+ ['1']*len(new_column_header),'\t')+'\n' ### format column-flat-clusters for export
     export_cdt.write(eweight)
-    
+
     ### Export each row in the clustered data matrix xt
     i=0
     for row in xt:
@@ -283,18 +315,18 @@ def exportFlatClusterData(filename, new_row_header,new_column_header,xt,ind1,ind
         i+=1
     export_cdt.close()
 
-################# Create Custom Color Gradients #################
-#http://matplotlib.sourceforge.net/examples/pylab_examples/custom_cmap.html
+################# Create Custom Color Gradients ####################################
+#http://matplotlib.sourceforge.net/examples/plt_examples/custom_cmap.html
 
 def RedBlackSkyBlue():
     cdict = {'red':   ((0.0, 0.0, 0.0),
                        (0.5, 0.0, 0.1),
                        (1.0, 1.0, 1.0)),
-    
+
              'green': ((0.0, 0.0, 0.9),
                        (0.5, 0.1, 0.0),
                        (1.0, 0.0, 0.0)),
-    
+
              'blue':  ((0.0, 0.0, 1.0),
                        (0.5, 0.1, 0.0),
                        (1.0, 0.0, 0.0))
@@ -310,7 +342,7 @@ def RedBlackBlue():
 
              'green': ((0.0, 0.0, 0.0),
                        (1.0, 0.0, 0.0)),
-    
+
              'blue':  ((0.0, 0.0, 1.0),
                        (0.5, 0.1, 0.0),
                        (1.0, 0.0, 0.0))
@@ -323,15 +355,15 @@ def RedBlackGreen():
     cdict = {'red':   ((0.0, 0.0, 0.0),
                        (0.5, 0.0, 0.1),
                        (1.0, 1.0, 1.0)),
-    
+
              'blue': ((0.0, 0.0, 0.0),
                        (1.0, 0.0, 0.0)),
-    
+
              'green':  ((0.0, 0.0, 1.0),
                        (0.5, 0.1, 0.0),
                        (1.0, 0.0, 0.0))
             }
-    
+
     my_cmap = matplotlib.colors.LinearSegmentedColormap('my_colormap',cdict,256)
     return my_cmap
 
@@ -339,11 +371,11 @@ def YellowBlackBlue():
     cdict = {'red':   ((0.0, 0.0, 0.0),
                        (0.5, 0.0, 0.1),
                        (1.0, 1.0, 1.0)),
-    
+
              'green': ((0.0, 0.0, 0.8),
                        (0.5, 0.1, 0.0),
                        (1.0, 1.0, 1.0)),
-    
+
              'blue':  ((0.0, 0.0, 1.0),
                        (0.5, 0.1, 0.0),
                        (1.0, 0.0, 0.0))
@@ -353,7 +385,64 @@ def YellowBlackBlue():
     my_cmap = matplotlib.colors.LinearSegmentedColormap('my_colormap',cdict,256)
     return my_cmap
 
-################# General data import methods #################
+################# General data import methods ######################################
+def normaliseData(x, center=True, norm_var=True):
+    "center, normalize or both to the array x"
+    n = len(x[0]); m = len(x) # m = 6 samples, n = 6000 genes
+
+    print x.min()
+    #print x
+    if center:
+        print "Centering data for each gene to have mean 0"
+        for g in range(n):
+            # center the data so it has mean = 0 for each gene:
+            ave_g = numpy.mean(x[:,g])
+            for i in range(m):
+                x[:,g][i] = x[:,g][i] - ave_g
+    print x.min()
+    #print x
+
+    if norm_var:
+        print "Normalising data so each gene has standard deviation of 1"
+        for g in range(n):
+            sum_sq = sum([ a ** 2 for a in (x[:,g])])
+            stdev = numpy.std(x[:,g])
+            #print "1) mean: %.4f st.dev: %.4f" % ( numpy.mean(x[:,g]), stdev )
+            for i in range(m):
+                x[:,g][i] = x[:,g][i] / stdev # dividing by variance gives identical result
+            #print "2) mean: %-7.4f st.dev: %-7.4f min: %-7.4f max: %-7.4f" % ( numpy.mean(x[:,g]), numpy.std(x[:,g]), numpy.min(x[:,g]), numpy.max(x[:,g]) )
+    print x.min()
+    #print x
+
+    return None # it is not nessary to return x, since it is modifying x
+
+def filterData(x, column_header, row_header, mag=2.5, min_thresh=10, max_thresh=1000000):
+    """filters out any gene for which the magnitude of expression is less than mag,
+    or for which the maximum value of all samples is less than min_thresh,
+    or for which the maximum value is greater than max_thresh"""
+
+    n = len(x[0]); m = len(x) # m  samples, n  genes
+    print "Filtering %d genes and %d samples:\nMin fold change: %.1f Min expression level (at least one sample): %d Max expression level: %d" % (n, m, mag, min_thresh, max_thresh)
+
+    hitlist = []
+    for g in range(n):
+        fpkm_max = max(x[:,g])
+        fpkm_min = min(x[:,g])
+        size = numpy.absolute(fpkm_max/(fpkm_min + 0.00001))
+        if size < mag or fpkm_max < min_thresh or fpkm_max > max_thresh :
+            hitlist.append(g)
+
+
+    # create new matrix and column_header without the columns in the hitlist:
+    y = numpy.delete(x, hitlist, 1)
+    print "Number of genes removed:", len(hitlist)
+    for gene in hitlist[::-1]:
+        column_header.pop(gene)
+
+    n = len(y[0]); m = len(y) # m = 6 samples, n = 6000 genes
+    print "there are now %d genes and %d samples" % (n, m)
+
+    return y, column_header, row_header
 
 def importData(filename):
     start_time = time.time()
@@ -365,69 +454,196 @@ def importData(filename):
         dataset_name = string.split(filename,'/')[-1][:-4]
     else:
         dataset_name = string.split(filename,'\\')[-1][:-4]
-        
-    for line in open(filename,'rU').xreadlines():         
-        t = string.split(line[:-1],'\t') ### remove end-of-line character - file is tab-delimited
+
+    filename_h = open(filename, 'rb')
+    for line in filename_h:
+        t = line[:-1].split() ### remove end-of-line character - file is tab- or space-delimited
         if first_row:
             column_header = t[1:]
             first_row=False
         else:
-            if ' ' not in t and '' not in t: ### Occurs for rows with missing data
-                s = map(float,t[1:])
+            if 'X' not in t and '-' not in t: ### Occurs for rows with missing data
+                try:
+                    s = map(float,t[1:])
+                except: # most common error for new analysis - creating a column containing cufflinks header names.
+                    for element in t[1:]:
+                        try:
+                            float(element)
+                        except ValueError:
+                            print "Error importing table. Expected value, got %r instead!" % element
                 if (abs(max(s)-min(s)))>0:
                     matrix.append(s)
                     row_header.append(t[0])
-            
+
     time_diff = str(round(time.time()-start_time,1))
     try:
         print '\n%d rows and %d columns imported for %s in %s seconds...' % (len(matrix),len(column_header),dataset_name,time_diff)
     except Exception:
         print 'No data in input file.'; force_error
     return numpy.array(matrix), column_header, row_header
-  
+
+################# Data analyis methods #############################################
+
+def analyse_pca(matrix, column_header, row_header, filename):
+    """
+    performs principal component analysis on the matrix and saves output as png.
+    No additional normalisation occurs at this step - all normalisation has been done
+    on the matrix prior to PCA.
+    """
+    # create data array and name array:
+    A = matrix
+    names = row_header
+
+    # assign colours to samples:
+    colorconvert = {'F':'go', 'S':'co', 1:'ro', 2:'go', 3:'ko', 4:'bo', 5:'co', 6:'mo', 7:'yo', 8:'r<', 9:'g<', 10:'k<', 11:'b<', 12:'c<', 13:'m<', 14:'y<', 15:'rs', 16:'gs', 17:'ks', 18:'bs', 19:'cs', 20:'ms', 21:'ys' }
+    colourlist = []
+    for name in names:
+        phase = re.search("(F|S)", name)
+        if phase is not None:
+            #print phase.groups()[0]
+            colourlist.append(colorconvert[phase.groups()[0]])
+        else:
+            colourlist.append('ko')
+    #print names, "\n", colourlist
+
+    # perform PCA on array A and get % variance explained of each principal component:
+    scores, loadings, E = pca_module.PCA_nipals(A, standardize=False, PCs=len(column_header), threshold=0.000001, E_matrices=False)
+
+    print "#" * 30
+    print "loadings:"
+    #print header[:var_num] , "\n"
+    print loadings
+    print "#" * 30
+    print "explained variance:"
+    #print header[:var_num] , "\n"
+    print E
+
+    PC1var_exp = E[0] * 100.0
+    PC2var_exp = E[1] * 100.0
+    PC3var_exp = E[2] * 100.0
+
+    # for keeping track of how many points are above or below PC2 median:
+    belowgreen = 0
+    belowcyan = 0
+    abovegreen = 0
+    abovecyan = 0
+
+    for idx in range(len(colourlist)):
+        # for keeping track of how many points are above or below PC2 median:
+        #print "(%.2f, %.2f) %s" % (scores[idx,0], scores[idx,1], colourlist[idx])
+        if scores[idx,1] <= 0 and colourlist[idx] == 'co':
+            belowcyan += 1
+            #print 0
+        elif scores[idx,1] > 0 and colourlist[idx] == 'co':
+            abovecyan += 1
+            #print 1
+        elif scores[idx,1] <= 0 and colourlist[idx] == 'go':
+            belowgreen += 1
+        elif scores[idx,1] > 0 and colourlist[idx] == 'go':
+            abovegreen += 1
+
+        fig = plt.figure(1)
+
+        sub1 = fig.add_subplot(2,1,1)
+        sub1.plot(scores[idx,0], scores[idx,1], colourlist[idx])
+        plt.xlabel( "PC1 (%.2f%%)" % (PC1var_exp) )
+        plt.ylabel( "PC2 (%.2f%%)" % (PC2var_exp) )
+        sub1.annotate( names[idx], xy=(scores[idx,0],scores[idx,1]),xytext=(-15,10), xycoords='data', textcoords='offset points' )
+
+        sub2 = fig.add_subplot(2,1,2)
+        sub2.plot(scores[idx,0], scores[idx,2], colourlist[idx])
+        plt.xlabel( "PC1 (%.2f%%)" % (PC1var_exp) )
+        plt.ylabel( "PC3 (%.2f%%)" % (PC3var_exp) )
+        sub2.annotate( names[idx], xy=(scores[idx,0],scores[idx,2]),xytext=(-15,10), xycoords='data', textcoords='offset points' )
+
+    print "\tCYAN\tGREEN\nABOVE\t%d\t%d\nBELOW\t%d\t%d" % (abovecyan, abovegreen, belowcyan, belowgreen)
+
+    savename = filename[:-3] + "PCA.png"
+    plt.savefig(savename, dpi=200) #,dpi=100
+    plt.show()
+
+def expression_dist(matrix, column_header, row_header, filename):
+    "Creates histogram of gene expression"
+
+    count = 0
+
+    for row in matrix:
+        fig = plt.figure()
+        subf = fig.add_subplot(111, title=row_header[count])
+        n, bins, patches = subf.hist(row, 50, histtype='stepfilled')
+        count += 1
+    plt.show()
+
+####################################################################################
+
 if __name__ == '__main__':
-    
-    ################  Default Methods ################
-    row_method = 'average'
-    column_method = 'single'
-    row_metric = 'cityblock' #cosine
-    column_metric = 'euclidean'
-    color_gradient = 'red_white_blue'
-    
+
+    parser = argparse.ArgumentParser(description="Performs heirarchical clustering")
+    parser.add_argument("data_file", type=str, help="The data file for analysing")
+    parser.add_argument("-t", "--row_header", type=str, dest="row_header", default=False, help="Not sure why this was put here")
+    parser.add_argument("-R", "--row_method", type=str, dest="row_method", default='average', help="The clustering method for rows \n(single, average, complete, etc)")
+    parser.add_argument("-C", "--column_method", type=str, dest="column_method", default='single', help="The clustering method for columns \n(single, average, complete, etc)")
+    parser.add_argument("-r", "--row_metric", type=str, dest="row_metric", default='correlation', help="The distance metric for rows \n(euclidean, correlation, cosine, manhattan, etc)")
+    parser.add_argument("-c", "--column_metric", type=str, dest="column_metric", default='correlation', help="The distance metric for columns \n(euclidean, correlation, manhattan, etc)")
+    parser.add_argument("-g", "--color_gradient", type=str, dest="color_gradient", default='red_white_blue', help="The colour scheme \n(red_white_blue, red_black_sky, red_black_blue, \nred_black_green, yellow_black_blue, seismic, \ngreen_white_purple, coolwarm)")
+    parser.add_argument("-m", "--magnitude", type=float, dest="filter", default=2.5, help="Filters out genes with magnitude of range less than value given. Default = 2.5")
+    parser.add_argument("-p", "--fpkm_max", type=int, dest="fpkm_max", default=1000000, help="Filters out genes with maximum fpkm greater than value given. Default = 1 000 000")
+    parser.add_argument("-q", "--fpkm_min", type=int, dest="fpkm_min", default=10, help="Filters out genes with maximum fpkm less than value given. Default = 10")
+    parser.add_argument("-n", "--normalise_off", action='store_true', default=False, help="Turns off normalisation. Normalises by subtracting the mean and dividing by the (subtracted) standard deviation.")
+    parser.add_argument("-u", "--centering_off", action='store_true', default=False, help="Turns off gene centering. Centering subtracts the mean from all values for a gene, giving mean = 0.")
+    parser.add_argument("-f", "--filter_off", action='store_true', help="Turns off filtering. ")
+    parser.add_argument("-P", "--pca", action='store_true',  help="Performs principal component analysis.")
+    parser.add_argument("-T", "--transpose", action='store_true',  help="Transpose the matrix. Columns should represent genes, Rows samples")
+    args = parser.parse_args()
+
     """ Running with cosine or other distance metrics can often produce negative Z scores
         during clustering, so adjustments to the clustering may be required.
-        
+
     see: http://docs.scipy.org/doc/scipy/reference/cluster.hierarchy.html
-    see: http://docs.scipy.org/doc/scipy/reference/spatial.distance.htm  
+    see: http://docs.scipy.org/doc/scipy/reference/spatial.distance.htm
     color_gradient = red_white_blue|red_black_sky|red_black_blue|red_black_green|yellow_black_blue|green_white_purple'
     """
-    ################  Comand-line arguments ################
-    if len(sys.argv[1:])<=1:  ### Indicates that there are insufficient number of command-line arguments
-        print "Warning! Please designate a tab-delimited input expression file in the command-line"
-        print "Example: python hierarchical_clustering.py --i /Users/me/logfolds.txt"
-        sys.exit()
-    else:
-        options, remainder = getopt.getopt(sys.argv[1:],'', ['i=','row_header','column_method',
-                                                    'row_metric','column_metric','color_gradient'])
-        for opt, arg in options:
-            if opt == '--i': filename=arg
-            elif opt == '--row_header': row_header=arg
-            elif opt == '--column_method': column_method=arg
-            elif opt == '--row_metric': row_metric=arg
-            elif opt == '--column_metric': column_metric=arg
-            elif opt == '--color_gradient': color_gradient=arg
-            else:
-                print "Warning! Command-line argument: %s not recognized. Exiting..." % opt; sys.exit()
-            
-    matrix, column_header, row_header = importData(filename)
+
+    matrix, column_header, row_header = importData(args.data_file)
+
+    if args.transpose:
+        # transpose the matrix and swap the column and row headers.
+        matrix = numpy.transpose(matrix)
+        tempcol = column_header
+        column_header = row_header
+        row_header = tempcol
+
+    if not args.filter_off:
+        matrix, column_header, row_header = filterData(matrix, column_header, row_header,  mag=args.filter, min_thresh=args.fpkm_min, max_thresh=args.fpkm_max)
+
+    expression_dist(matrix, column_header, row_header, args.data_file)
+
+    if not args.centering_off:
+        if args.normalise_off:
+            normaliseData(matrix, norm_var=False)
+        else:
+            normaliseData(matrix)
+
+
+    you_want = False    # change to True to swap the columns and rows (primarily visual).
+    if you_want:
+        matrix = numpy.transpose(matrix)
+        tempcol = column_header
+        column_header = row_header
+        row_header = tempcol
+
+
+    if args.pca:
+        analyse_pca(matrix, column_header, row_header, args.data_file)
+
 
     if len(matrix)>0:
         try:
-            heatmap(matrix, row_header, column_header, row_method, column_method, row_metric, column_metric, color_gradient, filename)
+            heatmap(matrix, row_header, column_header, args.row_method, args.column_method, args.row_metric, args.column_metric, args.color_gradient, args.data_file)
         except Exception:
-            print 'Error using %s ... trying euclidean instead' % row_metric
-            row_metric = 'euclidean'
+            print 'Error using %s ... trying euclidean instead' % args.row_metric
+
             try:
-                heatmap(matrix, row_header, column_header, row_method, column_method, row_metric, column_metric, color_gradient, filename)
+                heatmap(matrix, row_header, column_header, args.row_method, args.column_method, 'euclidean', args.column_metric, args.color_gradient, args.data_file)
             except IOError:
                 print 'Error with clustering encountered'
