@@ -308,16 +308,16 @@ def exportFlatClusterData(filename, new_row_header,new_column_header,xt,ind1,ind
 
     biglist = []
     for splitline in elements:
-        print len(splitline)
-        print splitline
+        #print len(splitline)
+        #print splitline
         biglist.append(splitline)
     newarray = numpy.array(biglist)
-    print numpy.shape(newarray)
+    #print numpy.shape(newarray)
     t_array = newarray.transpose()
-    print numpy.shape(t_array)
-    print newarray[:,0]
+    #print numpy.shape(t_array)
+    #print newarray[:,0]
 
-    newfile_h = open(filename + "transposed.list" , 'w')
+    newfile_h = open(filename + "_transposed.list" , 'w')
     for row in t_array:
         #print "The row is currently: %r" % row
         newfile_h.write("\t".join(row) + "\n")
@@ -409,7 +409,8 @@ def YellowBlackBlue():
     my_cmap = matplotlib.colors.LinearSegmentedColormap('my_colormap',cdict,256)
     return my_cmap
 
-################# General data import methods ######################################
+################# Matrix manipulation methods ######################################
+
 def normaliseData(x, center=True, norm_var=True, log_t=False):
     "center, normalize or both to the array x"
     n = len(x[0]); m = len(x) # m = 6 samples, n = 6000 genes
@@ -447,6 +448,39 @@ def normaliseData(x, center=True, norm_var=True, log_t=False):
 
     return None # it is not nessary to return x, since it is modifying x
 
+def filter_genes(x, column_header, row_header, genefile, col_num=0):
+    """takes a file and extracts the genes in the col_num specified column,
+    then uses it to filter the matrix"""
+
+    ## build list of genes for filtering:
+    genefile_h = open(genefile, 'rb')
+    genelist = {}   # will be a dict of names { 'Cbir01255':1, 'CbirVgq':1, ... }
+                    # used a dictionary to automatically remove any name duplications
+    filegen = [ line.split() for line in genefile_h ]
+
+    genefile_h.close()
+
+    for colset in filegen:
+        genelist[colset[col_num]]=1
+
+
+    # create position-based list for filtering from gene-names:
+    keeplist = []  # will be a position based list [ 0, 4, 23, 34, ... ]
+    for gene in genelist:
+        try:
+            keeplist.append(column_header.index(gene))
+        except:     # some columns will be headers that would cause errors.
+            pass
+
+    hitlist = range(len(column_header))
+    for posn in keeplist: # will be the inverse of keeplist
+        hitlist.remove(posn)
+
+    ## filter matrix with genelist:
+    y, column_header, row_header = filter_matrix(x, column_header, row_header, hitlist)
+
+    return y, column_header, row_header
+
 def filterData(x, column_header, row_header, mag=2.5, min_thresh=10, max_thresh=1000000):
     """filters out any gene for which the magnitude of expression is less than mag,
     or for which the maximum value of all samples is less than min_thresh,
@@ -463,6 +497,13 @@ def filterData(x, column_header, row_header, mag=2.5, min_thresh=10, max_thresh=
         if size < mag or fpkm_max < min_thresh or fpkm_max > max_thresh :
             hitlist.append(g)
 
+    y, column_header, row_header = filter_matrix(x, column_header, row_header, hitlist)
+
+    return y, column_header, row_header
+
+def filter_matrix(x, column_header, row_header, hitlist):
+    """given the positional list hitlist, will edit matrix and column headers
+    by removing those positions"""
 
     # create new matrix and column_header without the columns in the hitlist:
     y = numpy.delete(x, hitlist, 1)
@@ -474,6 +515,18 @@ def filterData(x, column_header, row_header, mag=2.5, min_thresh=10, max_thresh=
     print "there are now %d genes and %d samples" % (n, m)
 
     return y, column_header, row_header
+
+################# Data construction or import methods ##############################
+
+def create_table(build_list):
+    """Takes a comma-delimited list of files and uses them to build the fpkm table for
+    analysis"""
+
+    filename = cwd() + "fpkm_table.tbl"
+
+    data_table = filename
+
+    return data_table
 
 def importData(filename):
     start_time = time.time()
@@ -610,7 +663,7 @@ def expression_dist(matrix, column_header, row_header, filename, max_x=500, min_
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description="Performs heirarchical clustering")
-    parser.add_argument("data_file", type=str, help="The data file for analysing")
+    parser.add_argument("-D", "--data_file", type=str, help="The data file for analysing")
     parser.add_argument("-z", "--row_header", type=str, dest="row_header", default=False, help="Not sure why this was put here")
     parser.add_argument("-R", "--row_method", type=str, dest="row_method", default='average', help="The clustering method for rows \n(single, average, complete, etc)")
     parser.add_argument("-C", "--column_method", type=str, dest="column_method", default='single', help="The clustering method for columns \n(single, average, complete, etc)")
@@ -618,6 +671,8 @@ if __name__ == '__main__':
     parser.add_argument("-c", "--column_metric", type=str, dest="column_metric", default='correlation', help="The distance metric for columns \n(euclidean, correlation, manhattan, etc)")
     parser.add_argument("-g", "--color_gradient", type=str, dest="color_gradient", default='red_white_blue', help="The colour scheme \n(red_white_blue, red_black_sky, red_black_blue, \nred_black_green, yellow_black_blue, seismic, \ngreen_white_purple, coolwarm)")
     parser.add_argument("-m", "--magnitude", type=float, dest="filter", default=2.5, help="Filters out genes with magnitude of range less than value given. Default = 2.5")
+    parser.add_argument("-B", "--build_table", type=str, dest="build_list", default=None, help="Provide a comma-delimited list of cufflinks files with which to build the fpkm table for analysis.")
+    parser.add_argument("-L", "--gene_list", type=str, dest="gene_list", default=None, help="Allows provision of a file containing a list of genes for inclusion in the clustering (ie, will filter out all genes NOT in the list provided). Otherwise, all genes will be included.")
     parser.add_argument("-p", "--fpkm_max", type=float, dest="fpkm_max", default=1000000, help="Filters out genes with maximum fpkm greater than value given. Default = 1 000 000")
     parser.add_argument("-q", "--fpkm_min", type=int, dest="fpkm_min", default=10, help="Filters out genes with maximum fpkm less than value given. Default = 10")
     parser.add_argument("-t", "--transform", action='store_true', default=False, help="Turns on log2(FPKM + 1) transformation (prior to normalisation if selected).")
@@ -637,7 +692,12 @@ if __name__ == '__main__':
     color_gradient = red_white_blue|red_black_sky|red_black_blue|red_black_green|yellow_black_blue|green_white_purple'
     """
 
-    matrix, column_header, row_header = importData(args.data_file)
+    if args.build_list:
+        data_table = create_table(args.build_list)
+    else:
+        data_table = args.data_file
+
+    matrix, column_header, row_header = importData(data_table)
 
     if args.transpose:
         # transpose the matrix and swap the column and row headers.
@@ -645,6 +705,9 @@ if __name__ == '__main__':
         tempcol = column_header
         column_header = row_header
         row_header = tempcol
+
+    if args.gene_list:
+        matrix, column_header, row_header = filter_genes(matrix, column_header, row_header, args.gene_list, col_num=0)
 
     if not args.filter_off:
         matrix, column_header, row_header = filterData(matrix, column_header, row_header,  mag=args.filter, min_thresh=args.fpkm_min, max_thresh=args.fpkm_max)
