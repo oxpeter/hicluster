@@ -411,7 +411,7 @@ def YellowBlackBlue():
 
 ################# Matrix manipulation methods ######################################
 
-def normaliseData(x, center=True, norm_var=True, log_t=False):
+def normaliseData(x, center=True, norm_var=True, log_t=True):
     "center, normalize or both to the array x"
     n = len(x[0]); m = len(x) # m = 6 samples, n = 6000 genes
 
@@ -521,12 +521,30 @@ def filter_matrix(x, column_header, row_header, hitlist):
 def create_table(build_list):
     """Takes a comma-delimited list of files and uses them to build the fpkm table for
     analysis"""
+    # extract list of files:
+    all_files = build_list.split(',')
 
-    filename = cwd() + "fpkm_table.tbl"
+    output_file = os.getcwd() + "/fpkm_table.tbl"
+    print "saving built table to file ", output_file
 
-    data_table = filename
+    awk_cmd = """awk '!($10~/FPKM/){\
+    gene_sample[$1,FILENAME]=$9;\
+    samples[FILENAME]=1;genes[$1]=1}\
+    END{printf "%s\t", "genes";\
+    for(g in genes){printf "%s\t", g};print "";\
+    for(s in samples){printf "%s\t",s;\
+    for(g in genes){printf "%s\t", gene_sample[g,s]};\
+    print ""}}' """
 
-    return data_table
+    full_cmd = awk_cmd + " ".join(all_files) + ">" + str(output_file)
+
+    # build table:
+    os.system(full_cmd)
+
+    # shorten filenames within table for easier reading!
+    #output
+
+    return output_file
 
 def importData(filename):
     start_time = time.time()
@@ -646,17 +664,43 @@ def analyse_pca(matrix, column_header, row_header, filename):
     plt.savefig(savename, dpi=200) #,dpi=100
     plt.show()
 
-def expression_dist(matrix, column_header, row_header, filename, max_x=500, min_x=0):
+    print "Now for a numpy PCA..."
+    latent, coeff = numpy.linalg.eig(numpy.cov(matrix.T))
+    score = numpy.dot(coeff.T, matrix.T)
+
+    plt.figure()
+    plt.subplot(111)
+    plt.plot(score[:,0],score[:,1],'*g')
+    plt.show()
+
+    print score[:,0]
+    print score[:,1]
+    print row_header
+
+
+def expression_dist(matrix, column_header, row_header, filename, max_x=500, min_x=0, histo=False):
     "Creates histogram of gene expression"
 
     count = 0
 
-    for row in matrix:
-        fig = plt.figure()
-        subf = fig.add_subplot(111, title=row_header[count])
-        n, bins, patches = subf.hist(row, 50, range=(min_x,max_x), histtype='stepfilled')
-        count += 1
+    # create box and whisker plot of each sample:
+    fig = plt.figure()
+    subp = fig.add_subplot(111)
+    something = subp.boxplot(matrix.transpose())
+
+    # create labels for each sample:
+    rng = [ i + 1 for i in range(len(row_header)) ]
+    plt.xticks(rng , row_header)
+
     plt.show()
+
+    if histo:
+        for row in matrix:
+            fig = plt.figure()
+            subf = fig.add_subplot(111, title=row_header[count])
+            n, bins, patches = subf.hist(row, 50, range=(min_x,max_x), histtype='stepfilled')
+            count += 1
+        plt.show()
 
 ####################################################################################
 
@@ -665,8 +709,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Performs heirarchical clustering")
     parser.add_argument("-D", "--data_file", type=str, help="The data file for analysing")
     parser.add_argument("-z", "--row_header", type=str, dest="row_header", default=False, help="Not sure why this was put here")
-    parser.add_argument("-R", "--row_method", type=str, dest="row_method", default='average', help="The clustering method for rows \n(single, average, complete, etc)")
-    parser.add_argument("-C", "--column_method", type=str, dest="column_method", default='single', help="The clustering method for columns \n(single, average, complete, etc)")
+    parser.add_argument("-R", "--row_method", type=str, dest="row_method", default='complete', help="The clustering method for rows \n(single, average, complete, etc)")
+    parser.add_argument("-C", "--column_method", type=str, dest="column_method", default='complete', help="The clustering method for columns \n(single, average, complete, etc)")
     parser.add_argument("-r", "--row_metric", type=str, dest="row_metric", default='correlation', help="The distance metric for rows \n(euclidean, correlation, cosine, manhattan, etc)")
     parser.add_argument("-c", "--column_metric", type=str, dest="column_metric", default='correlation', help="The distance metric for columns \n(euclidean, correlation, manhattan, etc)")
     parser.add_argument("-g", "--color_gradient", type=str, dest="color_gradient", default='red_white_blue', help="The colour scheme \n(red_white_blue, red_black_sky, red_black_blue, \nred_black_green, yellow_black_blue, seismic, \ngreen_white_purple, coolwarm)")
@@ -675,7 +719,7 @@ if __name__ == '__main__':
     parser.add_argument("-L", "--gene_list", type=str, dest="gene_list", default=None, help="Allows provision of a file containing a list of genes for inclusion in the clustering (ie, will filter out all genes NOT in the list provided). Otherwise, all genes will be included.")
     parser.add_argument("-p", "--fpkm_max", type=float, dest="fpkm_max", default=1000000, help="Filters out genes with maximum fpkm greater than value given. Default = 1 000 000")
     parser.add_argument("-q", "--fpkm_min", type=int, dest="fpkm_min", default=10, help="Filters out genes with maximum fpkm less than value given. Default = 10")
-    parser.add_argument("-t", "--transform", action='store_true', default=False, help="Turns on log2(FPKM + 1) transformation (prior to normalisation if selected).")
+    parser.add_argument("-t", "--transform_off", action='store_true', default=False, help="Turns off log2(FPKM + 1) transformation (prior to normalisation if selected).")
     parser.add_argument("-n", "--normalise_off", action='store_true', default=False, help="Turns off normalisation. Normalises by subtracting the mean and dividing by the (subtracted) standard deviation.")
     parser.add_argument("-u", "--centering_off", action='store_true', default=False, help="Turns off gene centering. Centering subtracts the mean from all values for a gene, giving mean = 0.")
     parser.add_argument("-f", "--filter_off", action='store_true', help="Turns off filtering. ")
@@ -715,7 +759,7 @@ if __name__ == '__main__':
     if args.distribution:
         expression_dist(matrix, column_header, row_header, args.data_file)
 
-    normaliseData(matrix, center=not(args.centering_off), norm_var=not(args.normalise_off), log_t=args.transform)
+    normaliseData(matrix, center=not(args.centering_off), norm_var=not(args.normalise_off), log_t=not(args.transform_off))
 
     if args.distribution:
         expression_dist(matrix, column_header, row_header, args.data_file, min_x=-2, max_x=2)
@@ -731,16 +775,16 @@ if __name__ == '__main__':
 
 
     if args.pca:
-        analyse_pca(matrix, column_header, row_header, args.data_file)
+        analyse_pca(matrix, column_header, row_header, data_table)
 
 
     if len(matrix)>0:
         try:
-            heatmap(matrix, row_header, column_header, args.row_method, args.column_method, args.row_metric, args.column_metric, args.color_gradient, args.data_file)
+            heatmap(matrix, row_header, column_header, args.row_method, args.column_method, args.row_metric, args.column_metric, args.color_gradient, data_table)
         except Exception:
             print 'Error using %s ... trying euclidean instead' % args.row_metric
 
             try:
-                heatmap(matrix, row_header, column_header, args.row_method, args.column_method, 'euclidean', args.column_metric, args.color_gradient, args.data_file)
+                heatmap(matrix, row_header, column_header, args.row_method, args.column_method, 'euclidean', args.column_metric, args.color_gradient, data_table)
             except IOError:
                 print 'Error with clustering encountered'
