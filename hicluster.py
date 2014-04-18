@@ -35,7 +35,7 @@ import scipy
 import scipy.cluster.hierarchy as sch
 import scipy.spatial.distance as dist
 import numpy
-import pca_module
+# import pca_module only required if changing back PCA function.
 
 ################# Perform the hierarchical clustering #################
 
@@ -424,6 +424,7 @@ def normaliseData(x, center=True, norm_var=True, log_t=True):
 
     print x.min()
     #print x
+    meanlist = []   # to store for later re-adjustment of matrix
     if center:
         print "Centering data for each gene to have mean 0"
         for g in range(n):
@@ -431,6 +432,7 @@ def normaliseData(x, center=True, norm_var=True, log_t=True):
             ave_g = numpy.mean(x[:,g])
             for i in range(m):
                 x[:,g][i] = x[:,g][i] - ave_g
+                meanlist.append(ave_g)
     print x.min()
     #print x
 
@@ -446,7 +448,7 @@ def normaliseData(x, center=True, norm_var=True, log_t=True):
     print x.min()
     #print x
 
-    return None # it is not nessary to return x, since it is modifying x
+    return meanlist # it is not nessary to return x, since it is modifying x
 
 def filter_genes(x, column_header, row_header, genefile, col_num=0):
     """takes a file and extracts the genes in the col_num specified column,
@@ -608,6 +610,8 @@ def analyse_pca(matrix, column_header, row_header, filename):
             colourlist.append('ko')
     #print names, "\n", colourlist
 
+    ########## PCA using PCA_module (NIPALS decomposition) ##############
+    """
     # perform PCA on array A and get % variance explained of each principal component:
     scores, loadings, E = pca_module.PCA_nipals(A, standardize=False, PCs=len(column_header), threshold=0.000001, E_matrices=False)
 
@@ -616,6 +620,11 @@ def analyse_pca(matrix, column_header, row_header, filename):
     #print header[:var_num] , "\n"
     print loadings
     print "#" * 30
+    #print "checking distance of loadings (eigen vectors)"
+    #for col in loadings[:,:]:
+    #    print col
+    #    print numpy.sqrt(sum([ a ** 2 for a in col ]))
+
     print "explained variance:"
     #print header[:var_num] , "\n"
     print E
@@ -663,20 +672,118 @@ def analyse_pca(matrix, column_header, row_header, filename):
     savename = filename[:-3] + "PCA.png"
     plt.savefig(savename, dpi=200) #,dpi=100
     plt.show()
+    """
+    ########### PCA using Numpy: ######################################
+    """print "Now for a numpy PCA..."
+    eigval, eigvec = numpy.linalg.eig(numpy.cov(matrix))
+    # sort eigvectors:
+    idx = numpy.argsort(eigval)[::-1]
+    eigvec = eigvec[:,idx]
+    eigval = eigval[idx]
 
-    print "Now for a numpy PCA..."
-    latent, coeff = numpy.linalg.eig(numpy.cov(matrix.T))
-    score = numpy.dot(coeff.T, matrix.T)
+    # print list of eigvals:
+    sumval = sum(eigval)
+    #print "Sum of eigenvalues: %.2f\nPropn greatest eigval: %.2f" % (sumval, max(eigval)/sum(eigval))
+    #for val in eigval:
+    #    print "%-7.2f (%.2f%%)" % (val, 100.0 * val/sumval)
 
-    plt.figure()
-    plt.subplot(111)
-    plt.plot(score[:,0],score[:,1],'*g')
+    #print eigvec
+    #print "#" * 15
+    #for col in eigvec.T[:,:]:
+    #    print col
+    #    print numpy.sqrt(sum([ a ** 2 for a in col ]))
+
+    # reorient data to PCA space:
+    pca_set = numpy.dot(eigvec.T, matrix)
+
+    # print points:
+    for idx in range(len(colourlist)):
+        fig = plt.figure(2)
+
+        sub1 = fig.add_subplot(2,1,1)
+        sub1.plot(pca_set[idx,0], pca_set[idx,1], colourlist[idx])
+        plt.xlabel( "PC1 (%.2f%%)" % (100.0 * eigval[0]/sumval) )
+        plt.ylabel( "PC2 (%.2f%%)" % (100.0 * eigval[1]/sumval) )
+        sub1.annotate( names[idx], xy=(pca_set[idx,0], pca_set[idx,1]),xytext=(-15,10), xycoords='data', textcoords='offset points' )
+
+        sub2 = fig.add_subplot(2,1,2)
+        sub2.plot(pca_set[idx,0], pca_set[idx,2], colourlist[idx])
+        plt.xlabel( "PC1 (%.2f%%)" % (100.0 * eigval[0]/sumval) )
+        plt.ylabel( "PC3 (%.2f%%)" % (100.0 * eigval[2]/sumval) )
+        sub2.annotate( names[idx], xy=(pca_set[idx,0],pca_set[idx,2]),xytext=(-15,10), xycoords='data', textcoords='offset points' )
+
+    print "hello"
+    plt.show()
+    """
+
+    ############# PCA using numpy SVD decomposition ##################################
+    print "#" * 30
+    print "SVA analysis"
+    U, s, Vt = numpy.linalg.svd(matrix, full_matrices=True)
+    V = Vt.T
+
+    # sort the PCs by descending order of the singular values (i.e. by the
+    # proportion of total variance they explain)
+    ind = numpy.argsort(s)[::-1]
+    U = U[:, ind]
+    s = s[ind]
+    V = V[:, ind]
+    S = numpy.diag(s)
+
+    sumval = sum([ i ** 2 for i in s ])
+
+    # if we use all of the PCs we can reconstruct the noisy signal perfectly
+
+    # Mhat = numpy.dot(U, numpy.dot(S, V.T))
+    # if we use only the first 2 PCs the reconstruction is less accurate
+    # Mhat2 = numpy.dot(U[:, :2], numpy.dot(S[:2, :2], V[:,:2].T))
+
+    # To remove the variance of the 1st PC, which is primarily associated with experimenter:
+    matrix_reduced = numpy.dot(U[:,1:], numpy.dot(S[1:,1:], V[:,1:].T))
+    print numpy.shape(U)
+    print numpy.shape(S)
+    print numpy.shape(Vt)
+    print numpy.shape(matrix_reduced)
+
+    print "#" * 30
+    print "SVD eigenvectors/loadings:"
+    #print header[:var_num] , "\n"
+    print U
+    print "#" * 30
+    #print "checking distance of loadings (eigen vectors)"
+    #for col in loadings[:,:]:
+    #    print col
+    #    print numpy.sqrt(sum([ a ** 2 for a in col ]))
+
+    print "explained variance:"
+    print [ (z ** 2 / sumval) for z in s ]
+
+    # * if M is considered to be an (observations, features) matrix, the PCs
+    #   themselves would correspond to the rows of S^(1/2)*V.T. if M is
+    #   (features, observations) then the PCs would be the columns of
+    #   U*S^(1/2).
+
+    #q_scores = numpy.dot(numpy.sqrt(S), V.T)
+    q_scores = numpy.dot(U, numpy.sqrt(S))
+
+    for idx in range(len(colourlist)):
+        fig = plt.figure(1)
+
+        sub1 = fig.add_subplot(2,1,1)
+        sub1.plot(q_scores[idx,0], q_scores[idx,1], colourlist[idx])
+        plt.xlabel( "PC1 (%.2f%%)" % (100.0 * (s[0]**2)/sumval) )
+        plt.ylabel( "PC2 (%.2f%%)" % (100.0 * (s[1]**2)/sumval) )
+        sub1.annotate( names[idx], xy=(q_scores[idx,0], q_scores[idx,1]),xytext=(-15,10), xycoords='data', textcoords='offset points' )
+
+        sub2 = fig.add_subplot(2,1,2)
+        sub2.plot(q_scores[idx,0], q_scores[idx,2], colourlist[idx])
+        plt.xlabel( "PC1 (%.2f%%)" % (100.0 * (s[0]**2)/sumval) )
+        plt.ylabel( "PC3 (%.2f%%)" % (100.0 * (s[2]**2)/sumval) )
+        sub2.annotate( names[idx], xy=(q_scores[idx,0],q_scores[idx,2]),xytext=(-15,10), xycoords='data', textcoords='offset points' )
+
     plt.show()
 
-    print score[:,0]
-    print score[:,1]
-    print row_header
-
+    return matrix_reduced
 
 def expression_dist(matrix, column_header, row_header, filename, max_x=500, min_x=0, histo=False):
     "Creates histogram of gene expression"
@@ -720,7 +827,7 @@ if __name__ == '__main__':
     parser.add_argument("-p", "--fpkm_max", type=float, dest="fpkm_max", default=1000000, help="Filters out genes with maximum fpkm greater than value given. Default = 1 000 000")
     parser.add_argument("-q", "--fpkm_min", type=int, dest="fpkm_min", default=10, help="Filters out genes with maximum fpkm less than value given. Default = 10")
     parser.add_argument("-t", "--transform_off", action='store_true', default=False, help="Turns off log2(FPKM + 1) transformation (prior to normalisation if selected).")
-    parser.add_argument("-n", "--normalise_off", action='store_true', default=False, help="Turns off normalisation. Normalises by subtracting the mean and dividing by the (subtracted) standard deviation.")
+    parser.add_argument("-n", "--normalise_off", action='store_true', default=False, help="Turns off normalisation. Normalises by dividing by the standard deviation.")
     parser.add_argument("-u", "--centering_off", action='store_true', default=False, help="Turns off gene centering. Centering subtracts the mean from all values for a gene, giving mean = 0.")
     parser.add_argument("-f", "--filter_off", action='store_true', help="Turns off filtering. ")
     parser.add_argument("-d", "--distribution", action='store_true', default=False, help="Shows FPKM distribution of each sample before and after normalisation")
@@ -757,13 +864,30 @@ if __name__ == '__main__':
         matrix, column_header, row_header = filterData(matrix, column_header, row_header,  mag=args.filter, min_thresh=args.fpkm_min, max_thresh=args.fpkm_max)
 
     if args.distribution:
-        expression_dist(matrix, column_header, row_header, args.data_file)
+        expression_dist(matrix, column_header, row_header, data_table)
 
-    normaliseData(matrix, center=not(args.centering_off), norm_var=not(args.normalise_off), log_t=not(args.transform_off))
+    meanlist = normaliseData(matrix, center=not(args.centering_off), norm_var=not(args.normalise_off), log_t=not(args.transform_off))
 
     if args.distribution:
         expression_dist(matrix, column_header, row_header, args.data_file, min_x=-2, max_x=2)
 
+    if args.pca:
+        #matrixT = numpy.transpose(matrix)
+        #meanlist = normaliseData(matrixT, center=True, norm_var=True, log_t=True)
+        #matrixTNT = numpy.transpose(matrixT)
+        #expression_dist(matrixTNT, column_header, row_header, data_table)
+        matrix_red = analyse_pca(matrix, column_header, row_header, data_table)
+
+        print "Saving reduced PC data table to ", data_table + "_reduced_PCs.tbl"
+        file_h = open(data_table + "_reduced_PCs.tbl", 'w')
+        file_h.write("Gene_name\t%s\n" % ("\t".join(column_header)))
+        sample_count = 0
+        for row in matrix_red:
+            sample_str = str(row_header[sample_count])
+            row_str = "\t".join([ str(i) for i in row ])
+            file_h.write("%s\t%s\n" % ( sample_str, row_str ))
+            sample_count += 1
+        file_h.close()
 
 
     you_want = False    # change to True to swap the columns and rows (primarily visual).
@@ -774,8 +898,6 @@ if __name__ == '__main__':
         row_header = tempcol
 
 
-    if args.pca:
-        analyse_pca(matrix, column_header, row_header, data_table)
 
 
     if len(matrix)>0:
