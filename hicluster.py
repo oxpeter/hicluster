@@ -518,6 +518,61 @@ def filter_matrix(x, column_header, row_header, hitlist):
 
     return y, column_header, row_header
 
+def filter_pretty(x, column_header, row_header, mag=2.5, group1="F", group2="S"):
+    """searches for genes with magnitude mag different between two groups, as defined by
+    group1 and group2 labels"""
+
+    n = len(x[0]); m = len(x) # m  samples, n  genes
+    print "Filtering %d genes and %d samples:\nMin fold change between groups: %.1f " % (n, m, mag)
+
+    # split matrix into two based on the specified groups;
+    group1list = []
+    group1posns = []
+    group2list = []
+    group2posns = []
+    for s in row_header:
+        if re.search(group1,s) is not None:
+            group1list.append(s)
+            group1posns.append(row_header.index(s))
+        elif re.search(group2, s) is not None:
+            group2list.append(s)
+            group2posns.append(row_header.index(s))
+        else:       # group not found in sample list
+            print "#" * 30
+            print "%s could not be matched to group1 (%s) or group2 (%s)" % (s, group1, group2)
+            print "#" * 30
+
+    print group1list
+    print group2list
+    print group1posns
+    print group2posns
+
+    grouporder = group1posns + group2posns
+    limit = len(group1posns)
+
+    print "grouporder", grouporder
+    print "limit", limit
+
+    matrix_reord = x[grouporder,:]
+
+    n = len(matrix_reord[0]); m = len(matrix_reord) # m  samples, n  genes
+    print "Filtering %d genes and %d samples:\nMin fold change between groups: %.1f " % (n, m, mag)
+
+
+    hitlist = []
+    for g in range(n):
+        mean1 = numpy.mean(matrix_reord[:limit,g])
+        mean2 = numpy.mean(matrix_reord[limit:,g])
+        ratio = mean1 / mean2
+        if numpy.absolute( numpy.log2(ratio) / numpy.log2(mag) ) < 1 :
+            hitlist.append(g)
+
+    y, column_header, row_header = filter_matrix(matrix_reord, column_header, row_header, hitlist)
+
+    return y, column_header, row_header
+
+
+
 ################# Data construction or import methods ##############################
 
 def create_table(build_list):
@@ -609,112 +664,6 @@ def analyse_pca(matrix, column_header, row_header, filename):
         else:
             colourlist.append('ko')
     #print names, "\n", colourlist
-
-    ########## PCA using PCA_module (NIPALS decomposition) ##############
-    """
-    # perform PCA on array A and get % variance explained of each principal component:
-    scores, loadings, E = pca_module.PCA_nipals(A, standardize=False, PCs=len(column_header), threshold=0.000001, E_matrices=False)
-
-    print "#" * 30
-    print "loadings:"
-    #print header[:var_num] , "\n"
-    print loadings
-    print "#" * 30
-    #print "checking distance of loadings (eigen vectors)"
-    #for col in loadings[:,:]:
-    #    print col
-    #    print numpy.sqrt(sum([ a ** 2 for a in col ]))
-
-    print "explained variance:"
-    #print header[:var_num] , "\n"
-    print E
-
-    PC1var_exp = E[0] * 100.0
-    PC2var_exp = E[1] * 100.0
-    PC3var_exp = E[2] * 100.0
-
-    # for keeping track of how many points are above or below PC2 median:
-    belowgreen = 0
-    belowcyan = 0
-    abovegreen = 0
-    abovecyan = 0
-
-    for idx in range(len(colourlist)):
-        # for keeping track of how many points are above or below PC2 median:
-        #print "(%.2f, %.2f) %s" % (scores[idx,0], scores[idx,1], colourlist[idx])
-        if scores[idx,1] <= 0 and colourlist[idx] == 'co':
-            belowcyan += 1
-            #print 0
-        elif scores[idx,1] > 0 and colourlist[idx] == 'co':
-            abovecyan += 1
-            #print 1
-        elif scores[idx,1] <= 0 and colourlist[idx] == 'go':
-            belowgreen += 1
-        elif scores[idx,1] > 0 and colourlist[idx] == 'go':
-            abovegreen += 1
-
-        fig = plt.figure(1)
-
-        sub1 = fig.add_subplot(2,1,1)
-        sub1.plot(scores[idx,0], scores[idx,1], colourlist[idx])
-        plt.xlabel( "PC1 (%.2f%%)" % (PC1var_exp) )
-        plt.ylabel( "PC2 (%.2f%%)" % (PC2var_exp) )
-        sub1.annotate( names[idx], xy=(scores[idx,0],scores[idx,1]),xytext=(-15,10), xycoords='data', textcoords='offset points' )
-
-        sub2 = fig.add_subplot(2,1,2)
-        sub2.plot(scores[idx,0], scores[idx,2], colourlist[idx])
-        plt.xlabel( "PC1 (%.2f%%)" % (PC1var_exp) )
-        plt.ylabel( "PC3 (%.2f%%)" % (PC3var_exp) )
-        sub2.annotate( names[idx], xy=(scores[idx,0],scores[idx,2]),xytext=(-15,10), xycoords='data', textcoords='offset points' )
-
-    print "\tCYAN\tGREEN\nABOVE\t%d\t%d\nBELOW\t%d\t%d" % (abovecyan, abovegreen, belowcyan, belowgreen)
-
-    savename = filename[:-3] + "PCA.png"
-    plt.savefig(savename, dpi=200) #,dpi=100
-    plt.show()
-    """
-    ########### PCA using Numpy: ######################################
-    """print "Now for a numpy PCA..."
-    eigval, eigvec = numpy.linalg.eig(numpy.cov(matrix))
-    # sort eigvectors:
-    idx = numpy.argsort(eigval)[::-1]
-    eigvec = eigvec[:,idx]
-    eigval = eigval[idx]
-
-    # print list of eigvals:
-    sumval = sum(eigval)
-    #print "Sum of eigenvalues: %.2f\nPropn greatest eigval: %.2f" % (sumval, max(eigval)/sum(eigval))
-    #for val in eigval:
-    #    print "%-7.2f (%.2f%%)" % (val, 100.0 * val/sumval)
-
-    #print eigvec
-    #print "#" * 15
-    #for col in eigvec.T[:,:]:
-    #    print col
-    #    print numpy.sqrt(sum([ a ** 2 for a in col ]))
-
-    # reorient data to PCA space:
-    pca_set = numpy.dot(eigvec.T, matrix)
-
-    # print points:
-    for idx in range(len(colourlist)):
-        fig = plt.figure(2)
-
-        sub1 = fig.add_subplot(2,1,1)
-        sub1.plot(pca_set[idx,0], pca_set[idx,1], colourlist[idx])
-        plt.xlabel( "PC1 (%.2f%%)" % (100.0 * eigval[0]/sumval) )
-        plt.ylabel( "PC2 (%.2f%%)" % (100.0 * eigval[1]/sumval) )
-        sub1.annotate( names[idx], xy=(pca_set[idx,0], pca_set[idx,1]),xytext=(-15,10), xycoords='data', textcoords='offset points' )
-
-        sub2 = fig.add_subplot(2,1,2)
-        sub2.plot(pca_set[idx,0], pca_set[idx,2], colourlist[idx])
-        plt.xlabel( "PC1 (%.2f%%)" % (100.0 * eigval[0]/sumval) )
-        plt.ylabel( "PC3 (%.2f%%)" % (100.0 * eigval[2]/sumval) )
-        sub2.annotate( names[idx], xy=(pca_set[idx,0],pca_set[idx,2]),xytext=(-15,10), xycoords='data', textcoords='offset points' )
-
-    print "hello"
-    plt.show()
-    """
 
     ############# PCA using numpy SVD decomposition ##################################
     print "#" * 30
@@ -833,6 +782,7 @@ if __name__ == '__main__':
     parser.add_argument("-d", "--distribution", action='store_true', default=False, help="Shows FPKM distribution of each sample before and after normalisation")
     parser.add_argument("-P", "--pca", action='store_true',  help="Performs principal component analysis.")
     parser.add_argument("-T", "--transpose", action='store_true',  help="Transpose the matrix. Columns should represent genes, Rows samples")
+    parser.add_argument("-y", "--pretty_filter", type=float, default=None, help="Filters (non-normalised) matrix to remove genes whose mean value between treatments is less than value given. Try 2.5")
     args = parser.parse_args()
 
     """ Running with cosine or other distance metrics can often produce negative Z scores
@@ -850,6 +800,7 @@ if __name__ == '__main__':
 
     matrix, column_header, row_header = importData(data_table)
 
+
     if args.transpose:
         # transpose the matrix and swap the column and row headers.
         matrix = numpy.transpose(matrix)
@@ -857,11 +808,15 @@ if __name__ == '__main__':
         column_header = row_header
         row_header = tempcol
 
+    if args.pretty_filter:
+        matrix, column_header, row_header = filter_pretty(matrix, column_header, row_header, mag=args.pretty_filter)
+
     if args.gene_list:
         matrix, column_header, row_header = filter_genes(matrix, column_header, row_header, args.gene_list, col_num=0)
 
     if not args.filter_off:
         matrix, column_header, row_header = filterData(matrix, column_header, row_header,  mag=args.filter, min_thresh=args.fpkm_min, max_thresh=args.fpkm_max)
+
 
     if args.distribution:
         expression_dist(matrix, column_header, row_header, data_table)
@@ -896,9 +851,6 @@ if __name__ == '__main__':
         tempcol = column_header
         column_header = row_header
         row_header = tempcol
-
-
-
 
     if len(matrix)>0:
         try:
