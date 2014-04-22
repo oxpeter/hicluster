@@ -758,6 +758,13 @@ def expression_dist(matrix, column_header, row_header, filename, max_x=500, min_
             count += 1
         plt.show()
 
+def find_degs(kill_PC1):
+    "finds DEGs using t-test and returns dictionary { Gene:P-value }"
+    pass
+
+
+
+
 ####################################################################################
 
 if __name__ == '__main__':
@@ -783,6 +790,7 @@ if __name__ == '__main__':
     parser.add_argument("-P", "--pca", action='store_true',  help="Performs principal component analysis.")
     parser.add_argument("-T", "--transpose", action='store_true',  help="Transpose the matrix. Columns should represent genes, Rows samples")
     parser.add_argument("-y", "--pretty_filter", type=float, default=None, help="Filters (non-normalised) matrix to remove genes whose mean value between treatments is less than value given. Try 2.5")
+    parser.add_argument("-k", "--kill_PC1", action='store_true', help="removes first principal component")
     args = parser.parse_args()
 
     """ Running with cosine or other distance metrics can often produce negative Z scores
@@ -851,6 +859,10 @@ if __name__ == '__main__':
         tempcol = column_header
         column_header = row_header
         row_header = tempcol
+
+    if args.kill_PC1:
+        matrix = matrix_red
+
 
     if len(matrix)>0:
         try:
