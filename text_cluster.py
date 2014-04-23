@@ -16,9 +16,9 @@ def count_names(filename):
         for word in words:
             if len(word)>=1:
                 if word in wordich:
-                    wordich[word] += 1
+                    wordich[word.upper()] += 1
                 else:
-                    wordich[word] = 1
+                    wordich[word.upper()] = 1
     file_h.close()
     return wordich
     
@@ -37,7 +37,7 @@ if __name__ == '__main__':
     namedich = {}
     for fn in filenames:
         alldich[fn] = count_names(fn)
-        namedich.update(alldich)
+        namedich.update(alldich[fn])
     
     # create table:
     out_h = open(args.output, 'w')
@@ -46,7 +46,7 @@ if __name__ == '__main__':
         out_h.write(txtfile + " ")
         for word in namedich:
             if word in alldich[txtfile]:
-                out_h.write(alldich[txtfile][word] + " ")
+                out_h.write(str(alldich[txtfile][word]) + " ")
             else:
                 out_h.write("0 ")
         out_h.write("\n")
