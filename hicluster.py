@@ -589,7 +589,51 @@ def filter_pretty(x, column_header, row_header, mag=2.5, group1="_F", group2="_S
 
     return y, column_header, row_header
 
+def reorder_matrix(x, column_header, row_header, groups=["_F","_S"]):
+    "reorders rows such that they are sorted accordign to specified groups"
 
+    n = len(x[0]); m = len(x) # m  samples, n  genes
+    print "Sorting genes into %d groups" % (len(groups))
+
+    # split matrix into two based on the specified groups;
+    namelist = {}
+    poslist = {}
+
+
+    for s in row_header:
+        for pattern in groups:
+            if pattern not in namelist:
+                namelist[pattern] = []
+                poslist[pattern] = []
+            # assign each sample to a group:
+            if re.search(pattern,s) is not None:
+                namelist[pattern].append(s)
+                poslist[pattern].append(row_header.index(s))
+                break
+        else:       # group not found in any sample list
+            print "#" * 30
+            print "%s could not be matched to any group ==> %r" % (s, groups)
+            print "#" * 30
+
+    grouporder = []
+    limits = []
+    boundarystone = 0
+    for pattern in groups:
+        try:
+            print pattern, namelist[pattern]
+            grouporder += poslist[pattern]
+            boundarystone += len(poslist[pattern])
+        except KeyError:
+            print pattern, "None found"
+        limits.append(boundarystone)
+
+    print "grouporder       :", grouporder
+    print "limits (boundary):", limits
+
+    matrix_reord = x[grouporder,:]
+    row_header_new = [x for (y,x) in sorted(zip(grouporder,row_header))]
+
+    return matrix_reord, column_header, row_header, limits
 
 ################# Data construction or import methods ##############################
 
@@ -794,6 +838,7 @@ def expression_dist(matrix, column_header, row_header, filename, max_x=500, min_
 def find_degs(x, column_header, row_header, group1="_F", group2="_S"):
     "finds DEGs using t-test and returns dictionary { Gene:P-value }"
 
+    """
     t_dict = {}
     n = len(x[0]); m = len(x) # m  samples, n  genes
     print "Sorting genes into group: %s and group: %s" % (group1, group2)
@@ -827,16 +872,44 @@ def find_degs(x, column_header, row_header, group1="_F", group2="_S"):
     print "limit", limit
 
     matrix_reord = x[grouporder,:]
+    """
 
+
+    matrix_reord, column_header, reord_row_header, limits = reorder_matrix(x, column_header, row_header, groups=["_F","_S"])
     n = len(matrix_reord[0]); m = len(matrix_reord) # m  samples, n  genes
-    print "Performing t-test"
 
+    print "Performing t-test"
+    limit = limits[0]
+    t_dict = {}
+    print "limit for t-test",limit
     for g in range(n):
         t_val, p_val = stats.ttest_ind(matrix_reord[:limit,g], matrix_reord[limit:,g])
         t_dict[column_header[g]] = p_val
 
     return t_dict
 
+def degs_anova(x, column_header, row_header, group1="_F", group2="_S"):
+    "finds DEGs using ANOVA and returns dictionary { Gene:P-value }"
+
+    matrix_reord, column_header, reord_row_header, limits = reorder_matrix(x, column_header, row_header, groups=["SL12|SL24","SL48|SL96","FP12|FP24","FP48|FP96"])     # groups=["SL12","SL24","SL48","SL96","FP12","FP24","FP48","FP96","SP12","FL12"])
+    n = len(matrix_reord[0]); m = len(matrix_reord) # m  samples, n  genes
+
+    # boundaries in matrix for each time point:
+    #SL12,SL24,SL48,SL96,FP12,FP24,FP48,FP96,SP12,FL12 = limits[0], limits[1], limits[2], limits[3], limits[4], limits[5], limits[6], limits[7], limits[8], limits[9]
+    #for i in range(len(limits)):
+
+
+    print "Performing ANOVA"
+
+    A_dict = {}
+    print "limits for anova:",limits
+    for g in range(n):
+        f_val, p_val = stats.f_oneway(matrix_reord[:limits[0],g],\
+            matrix_reord[limits[0]:limits[1],g], matrix_reord[limits[1]:limits[2],g],\
+            matrix_reord[limits[2]:limits[3],g])
+        A_dict[column_header[g]] = p_val
+
+    return A_dict
 
 
 
@@ -865,6 +938,8 @@ if __name__ == '__main__':
     parser.add_argument("-P", "--pca", action='store_true',  help="Performs principal component analysis.")
     parser.add_argument("-T", "--transpose", action='store_true',  help="Transpose the matrix. Columns should represent genes, Rows samples")
     parser.add_argument("-X", "--sample_norm", action='store_true', help='Normalises samples instead of genes')
+    parser.add_argument("-a", "--anova", type=float,  help="Perform ANOVA on 10 groups, and report genes with P-value less than value specified")
+    parser.add_argument("-A", "--filter_anova", type=float, help="Perform ANOVA and filter genes to keep only those with P-value less than value given")
     parser.add_argument("-s", "--t_test", type=float,  help="Perform student's t-test on two groups, and report genes with P-value less than value specified")
     parser.add_argument("-S", "--filter_t", type=float, dest="ttest_thresh", help="Perform student's t-test and filter genes to keep only those with P-value less than value given")
     parser.add_argument("-y", "--pretty_filter", type=float, default=None, help="Filters (non-normalised) matrix to remove genes whose mean value between treatments is less than value given. Try 2.5")
@@ -879,47 +954,57 @@ if __name__ == '__main__':
     color_gradient = red_white_blue|red_black_sky|red_black_blue|red_black_green|yellow_black_blue|green_white_purple'
     """
 
+    ## create data table from cufflinks files:
     if args.build_list:
         data_table = create_table(args.build_list)
     else:
         data_table = args.data_file
 
+    ## create matrix:
     matrix, column_header, row_header = importData(data_table)
 
     row_header = clean_header(row_header)
 
+    ## transpose the matrix and swap the column and row headers.
     if args.transpose:
-        # transpose the matrix and swap the column and row headers.
         matrix = numpy.transpose(matrix)
         tempcol = column_header
         column_header = row_header
         row_header = tempcol
 
+
+    ####### FILTERING OF MATRIX ###########
+
+    ## filter by differences between groups
     if args.pretty_filter:
         matrix, column_header, row_header = filter_pretty(matrix, column_header, row_header, mag=args.pretty_filter)
 
+    ## filter by provided gene list
     if args.gene_list:
         print args.gene_list
         if args.gene_list != 'ttest':
             matrix, column_header, row_header = filter_genes(matrix, column_header, row_header, args.gene_list, col_num=0)
 
+    ## filter by magnitude, minimum values and maximum values
     if not args.filter_off:
         matrix, column_header, row_header = filterData(matrix, column_header, row_header,  mag=args.filter, min_thresh=args.fpkm_min, max_thresh=args.fpkm_max)
 
 
+    ####### ANALYSIS OPTIONS ##############
+
+    ## show gene distribution
     if args.distribution:
         expression_dist(matrix, column_header, row_header, data_table)
 
+    ## normalise matrix
     meanlist = normaliseData(matrix, center=not(args.centering_off), norm_var=not(args.normalise_off), log_t=not(args.transform_off), sample_norm=args.sample_norm)
 
+    ## show distribution after normalisation
     if args.distribution:
         expression_dist(matrix, column_header, row_header, args.data_file, min_x=-2, max_x=2)
 
+    ## Principal Component Analysis:
     if args.pca:
-        #matrixT = numpy.transpose(matrix)
-        #meanlist = normaliseData(matrixT, center=True, norm_var=True, log_t=True)
-        #matrixTNT = numpy.transpose(matrixT)
-        #expression_dist(matrixTNT, column_header, row_header, data_table)
         matrix_red = analyse_pca(matrix, column_header, row_header, data_table)
 
         print "Saving reduced PC data table to ", data_table + "_reduced_PCs.tbl"
@@ -935,14 +1020,23 @@ if __name__ == '__main__':
     if args.kill_PC1:
         matrix = matrix_red
 
+    ## ANOVA analysis
+    if args.filter_anova:
+        a_list = []
+        a_dict = degs_anova(matrix, column_header, row_header)
+        for gene in a_dict:
+            if a_dict[gene] <= args.filter_anova:
+                print "Gene: %-12s P-value: %.4f" % (gene, a_dict[gene])
+                a_list.append(gene)
+        print "Filtering matrix to genes with ANOVA P-value less than %.2f" % (args.filter_anova)
+        matrix, column_header, row_header = filter_genes(matrix, column_header, row_header, a_list)
+    elif args.anova:
+        a_dict = degs_anova(matrix, column_header, row_header)
+        for gene in a_dict:
+            if a_dict[gene] <= args.anova:
+                print "Gene: %-12s P-value: %.4f" % (gene, a_dict[gene])
 
-    you_want = False    # change to True to swap the columns and rows (primarily visual).
-    if you_want:
-        matrix = numpy.transpose(matrix)
-        tempcol = column_header
-        column_header = row_header
-        row_header = tempcol
-
+    ## t-test analysis
     if args.ttest_thresh:
         t_list = []
         t_dict = find_degs(matrix, column_header, row_header)
@@ -958,6 +1052,15 @@ if __name__ == '__main__':
             if t_dict[gene] <= args.t_test:
                 print "Gene: %-12s P-value: %.4f" % (gene, t_dict[gene])
 
+    ## re-orient for publication purposes
+    you_want = False    # change to True to swap the columns and rows (primarily visual).
+    if you_want:
+        matrix = numpy.transpose(matrix)
+        tempcol = column_header
+        column_header = row_header
+        row_header = tempcol
+
+    ## perform hierarchical clustering
     if len(matrix)>0:
         try:
             heatmap(matrix, row_header, column_header, args.row_method, args.column_method, args.row_metric, args.column_metric, args.color_gradient, data_table)
@@ -965,6 +1068,6 @@ if __name__ == '__main__':
             print 'Error using %s ... trying euclidean instead' % args.row_metric
 
             try:
-                heatmap(matrix, row_header, column_header, args.row_method, args.column_method, 'euclidean', args.column_metric, args.color_gradient, data_table)
+                heatmap(matrix, row_header, column_header, args.row_method, args.column_method, 'euclidean', 'euclidean', args.color_gradient, data_table)
             except IOError:
                 print 'Error with clustering encountered'
