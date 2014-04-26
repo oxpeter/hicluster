@@ -1,27 +1,17 @@
 #!/usr/bin/env python
 
-### hierarchical_clustering.py
-#Copyright 2005-2012 J. David Gladstone Institutes, San Francisco California
-#Author Nathan Salomonis - nsalomonis@gmail.com
+""" Imports a whitespace-delimited expression matrix and produces a hierarchically 
+clustered heatmap. Can also build the expression matrix from cufflinks data file.
 
-#Permission is hereby granted, free of charge, to any person obtaining a copy
-#of this software and associated documentation files (the "Software"), to deal
-#in the Software without restriction, including without limitation the rights
-#to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-#copies of the Software, and to permit persons to whom the Software is furnished
-#to do so, subject to the following conditions:
+Multiple filtering options and matrix normalisation methods are now implemented.
 
-#THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
-#INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-#PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
-#HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-#OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-#SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+T-test and ANOVA testing are also available to test individual rows/columns.
 
-#################
-### Imports an tab-delimited expression matrix and produces and hierarchically clustered heatmap
-#################
+PCA and read distribution plots can be displayed to check for normalcy, clustering etc.
 
+
+
+"""
 import string
 import time
 import sys, os, re
@@ -36,9 +26,26 @@ from scipy import stats
 import scipy.cluster.hierarchy as sch
 import scipy.spatial.distance as dist
 import numpy
-# import pca_module only required if changing back PCA function.
 
 ################# Perform the hierarchical clustering #################
+###  heatmap function updated from original code hierarchical_clustering.py
+#    Copyright 2005-2012 J. David Gladstone Institutes, San Francisco California
+#    Author Nathan Salomonis - nsalomonis@gmail.com
+#
+#    Original message:
+#Permission is hereby granted, free of charge, to any person obtaining a copy
+#of this software and associated documentation files (the "Software"), to deal
+#in the Software without restriction, including without limitation the rights
+#to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+#copies of the Software, and to permit persons to whom the Software is furnished
+#to do so, subject to the following conditions:
+
+#THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+#INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+#PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+#HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+#OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+#SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 def heatmap(x, row_header, column_header, row_method,
             column_method, row_metric, column_metric,
@@ -412,7 +419,7 @@ def YellowBlackBlue():
 ################# Matrix manipulation methods ######################################
 
 def normaliseData(x, center=True, norm_var=True, log_t=True, sample_norm=False):
-    "center, normalize or both to the array x"
+    "center, normalize and/or log transform the array x"
     n = len(x[0]); m = len(x) # m = 6 samples, n = 6000 genes
 
     print "\n\nInitial minimum value in matrix: ", x.min()
