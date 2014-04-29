@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-""" Imports a whitespace-delimited expression matrix and produces a hierarchically 
+""" Imports a whitespace-delimited expression matrix and produces a hierarchically
 clustered heatmap. Can also build the expression matrix from cufflinks data file.
 
 Multiple filtering options and matrix normalisation methods are now implemented.
@@ -987,7 +987,7 @@ if __name__ == '__main__':
         filename = args.filename
 
     log_h = open(filename, 'w')
-    log_h.write( "File created on %s" % (timestamp) )
+    log_h.write( "File created on %s\n" % (timestamp) )
     for arg in str(args).split():
         log_h.write( "%s\n" % (arg) )
     log_h.close()
