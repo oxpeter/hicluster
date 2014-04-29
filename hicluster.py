@@ -243,13 +243,10 @@ def heatmap(x, row_header, column_header, row_method,
     axcb.set_title("colorkey")
 
 
-    dataset_name = os.path.basename(filename)[:-4]
-    root_dir = os.path.dirname(filename)
-
-    filename = root_dir + '/Clustering-%s-hierarchical_%s_%s.pdf' % (dataset_name,column_metric,row_metric)
+    pdfname = filename[:-4] + '.pdf'
     cb.set_label("Differential Expression (log2 fold)")
     ind1 = ind1[::-1] # reverse order of flat cluster leaves to match samples in txt file.
-    exportFlatClusterData(filename, new_row_header,new_column_header,xt,ind1,ind2)
+    exportFlatClusterData(pdfname, new_row_header,new_column_header,xt,ind1,ind2)
 
     ### Render the graphic
     if len(row_header)>50 or len(column_header)>50:
@@ -257,10 +254,10 @@ def heatmap(x, row_header, column_header, row_method,
     else:
         plt.rcParams['font.size'] = 10 #8
 
-    plt.savefig(filename)
-    print 'Exporting:',filename
+    plt.savefig(pdfname)
+    print 'Exporting:',pdfname
     filename = filename[:-4]+'.png'
-    plt.savefig(filename, dpi=200) #,dpi=100
+    plt.savefig(pdfname, dpi=200) #,dpi=100
     plt.show()
 
 def getColorRange(x):
@@ -317,7 +314,7 @@ def exportFlatClusterData(filename, new_row_header,new_column_header,xt,ind1,ind
     #print numpy.shape(t_array)
     #print newarray[:,0]
 
-    newfile_h = open(filename + "_transposed.list" , 'w')
+    newfile_h = open(filename[:-4] + "_transposed.txt" , 'w')
     for row in t_array:
         #print "The row is currently: %r" % row
         newfile_h.write("\t".join(row) + "\n")
@@ -891,7 +888,7 @@ def find_degs(x, column_header, row_header, group1="_F", group2="_S"):
 def degs_anova(x, column_header, row_header, group1="_F", group2="_S"):
     "finds DEGs using ANOVA and returns dictionary { Gene:P-value }"
 
-    matrix_reord, column_header, reord_row_header, limits = reorder_matrix(x, column_header, row_header, groups=["SL12|SL24","SL48|SL96","FP12|FP24","FP48|FP96"])     # groups=["SL12","SL24","SL48","SL96","FP12","FP24","FP48","FP96","SP12","FL12"])
+    matrix_reord, column_header, reord_row_header, limits = reorder_matrix(x, column_header, row_header, groups=["SL12", "SL24","SL48", "SL96","FP12", "FP24","FP48", "FP96"])     # groups=["SL12","SL24","SL48","SL96","FP12","FP24","FP48","FP96","SP12","FL12"])
     n = len(matrix_reord[0]); m = len(matrix_reord) # m  samples, n  genes
 
     # boundaries in matrix for each time point:
@@ -906,7 +903,9 @@ def degs_anova(x, column_header, row_header, group1="_F", group2="_S"):
     for g in range(n):
         f_val, p_val = stats.f_oneway(matrix_reord[:limits[0],g],\
             matrix_reord[limits[0]:limits[1],g], matrix_reord[limits[1]:limits[2],g],\
-            matrix_reord[limits[2]:limits[3],g])
+            matrix_reord[limits[2]:limits[3],g], matrix_reord[limits[3]:limits[4],g],\
+            matrix_reord[limits[4]:limits[5],g], matrix_reord[limits[5]:limits[6],g],\
+            matrix_reord[limits[6]:limits[7],g])
         A_dict[column_header[g]] = p_val
 
     return A_dict
@@ -918,33 +917,45 @@ def degs_anova(x, column_header, row_header, group1="_F", group2="_S"):
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description="Performs heirarchical clustering")
+
+    # input options
     parser.add_argument("-D", "--data_file", type=str, help="The data file for analysing")
+    parser.add_argument("-B", "--build_table", type=str, dest="build_list", default=None, help="Provide a comma-delimited list of cufflinks files with which to build the fpkm table for analysis.")
+    # output options
+    parser.add_argument("-o", "--output_file", dest='filename', type=str, default=None, help="output file name for results")
+    # analysis options
     parser.add_argument("-z", "--row_header", type=str, dest="row_header", default=False, help="Not sure why this was put here")
     parser.add_argument("-R", "--row_method", type=str, dest="row_method", default='complete', help="The clustering method for rows \n(single, average, complete, etc)")
     parser.add_argument("-C", "--column_method", type=str, dest="column_method", default='complete', help="The clustering method for columns \n(single, average, complete, etc)")
     parser.add_argument("-r", "--row_metric", type=str, dest="row_metric", default='correlation', help="The distance metric for rows \n(euclidean, correlation, cosine, manhattan, etc)")
     parser.add_argument("-c", "--column_metric", type=str, dest="column_metric", default='correlation', help="The distance metric for columns \n(euclidean, correlation, manhattan, etc)")
-    parser.add_argument("-g", "--color_gradient", type=str, dest="color_gradient", default='red_white_blue', help="The colour scheme \n(red_white_blue, red_black_sky, red_black_blue, \nred_black_green, yellow_black_blue, seismic, \ngreen_white_purple, coolwarm)")
-    parser.add_argument("-m", "--magnitude", type=float, dest="filter", default=2.5, help="Filters out genes with magnitude of range less than value given. Default = 2.5")
-    parser.add_argument("-B", "--build_table", type=str, dest="build_list", default=None, help="Provide a comma-delimited list of cufflinks files with which to build the fpkm table for analysis.")
-    parser.add_argument("-L", "--gene_list", type=str, dest="gene_list", default=None, help="Allows provision of a file containing a list of genes for inclusion in the clustering (ie, will filter out all genes NOT in the list provided). Otherwise, all genes will be included.")
-    parser.add_argument("-p", "--fpkm_max", type=float, dest="fpkm_max", default=1000000, help="Filters out genes with maximum fpkm greater than value given. Default = 1 000 000")
-    parser.add_argument("-q", "--fpkm_min", type=int, dest="fpkm_min", default=10, help="Filters out genes with maximum fpkm less than value given. Default = 10")
-    parser.add_argument("-t", "--transform_off", action='store_true', default=False, help="Turns off log2(FPKM + 1) transformation (prior to normalisation if selected).")
-    parser.add_argument("-n", "--normalise_off", action='store_true', default=False, help="Turns off normalisation. Normalises by dividing by the standard deviation.")
-    parser.add_argument("-u", "--centering_off", action='store_true', default=False, help="Turns off gene centering. Centering subtracts the mean from all values for a gene, giving mean = 0.")
-    parser.add_argument("-f", "--filter_off", action='store_true', help="Turns off filtering. ")
-    parser.add_argument("-d", "--distribution", action='store_true', default=False, help="Shows FPKM distribution of each sample before and after normalisation")
     parser.add_argument("-P", "--pca", action='store_true',  help="Performs principal component analysis.")
-    parser.add_argument("-T", "--transpose", action='store_true',  help="Transpose the matrix. Columns should represent genes, Rows samples")
-    parser.add_argument("-X", "--sample_norm", action='store_true', help='Normalises samples instead of genes')
     parser.add_argument("-a", "--anova", type=float,  help="Perform ANOVA on 10 groups, and report genes with P-value less than value specified")
     parser.add_argument("-A", "--filter_anova", type=float, help="Perform ANOVA and filter genes to keep only those with P-value less than value given")
     parser.add_argument("-s", "--t_test", type=float,  help="Perform student's t-test on two groups, and report genes with P-value less than value specified")
     parser.add_argument("-S", "--filter_t", type=float, dest="ttest_thresh", help="Perform student's t-test and filter genes to keep only those with P-value less than value given")
+    # viewing options
+    parser.add_argument("-g", "--color_gradient", type=str, dest="color_gradient", default='red_white_blue', help="The colour scheme \n(red_white_blue, red_black_sky, red_black_blue, \nred_black_green, yellow_black_blue, seismic, \ngreen_white_purple, coolwarm)")
+    parser.add_argument("-d", "--distribution", action='store_true', default=False, help="Shows FPKM distribution of each sample before and after normalisation")
+    # filtering options
+    parser.add_argument("-m", "--magnitude", type=float, dest="filter", default=2.5, help="Filters out genes with magnitude of range less than value given. Default = 2.5")
+    parser.add_argument("-L", "--gene_list", type=str, dest="gene_list", default=None, help="Allows provision of a file containing a list of genes for inclusion in the clustering (ie, will filter out all genes NOT in the list provided). Otherwise, all genes will be included.")
+    parser.add_argument("-p", "--fpkm_max", type=float, dest="fpkm_max", default=1000000, help="Filters out genes with maximum fpkm greater than value given. Default = 1 000 000")
+    parser.add_argument("-q", "--fpkm_min", type=int, dest="fpkm_min", default=10, help="Filters out genes with maximum fpkm less than value given. Default = 10")
+    parser.add_argument("-f", "--filter_off", action='store_true', help="Turns off filtering. ")
     parser.add_argument("-y", "--pretty_filter", type=float, default=None, help="Filters (non-normalised) matrix to remove genes whose mean value between treatments is less than value given. Try 2.5")
     parser.add_argument("-k", "--kill_PC1", action='store_true', help="removes first principal component")
+    # data transform options
+    parser.add_argument("-t", "--transform_off", action='store_true', default=False, help="Turns off log2(FPKM + 1) transformation (prior to normalisation if selected).")
+    parser.add_argument("-n", "--normalise_off", action='store_true', default=False, help="Turns off normalisation. Normalises by dividing by the standard deviation.")
+    parser.add_argument("-u", "--centering_off", action='store_true', default=False, help="Turns off gene centering. Centering subtracts the mean from all values for a gene, giving mean = 0.")
+    parser.add_argument("-T", "--transpose", action='store_true',  help="Transpose the matrix. Columns should represent genes, Rows samples")
+    parser.add_argument("-X", "--sample_norm", action='store_true', help='Normalises samples instead of genes')
+
     args = parser.parse_args()
+
+
+
 
     """ Running with cosine or other distance metrics can often produce negative Z scores
         during clustering, so adjustments to the clustering may be required.
@@ -959,6 +970,22 @@ if __name__ == '__main__':
         data_table = create_table(args.build_list)
     else:
         data_table = args.data_file
+
+    ## create log file of arguments:
+    timestamp = time.strftime("%b%d_%H.%M")
+    if not args.filename:
+        root_dir = os.path.dirname(data_table)
+        filename = root_dir + "/hicluster." + timestamp + ".log"
+    else:
+        filename = args.filename
+
+    log_h = open(filename, 'w')
+    log_h.write( "File created on %s" % (timestamp) )
+    for arg in str(args).split():
+        log_h.write( "%s\n" % (arg) )
+    log_h.close()
+
+
 
     ## create matrix:
     matrix, column_header, row_header = importData(data_table)
@@ -1024,33 +1051,41 @@ if __name__ == '__main__':
     if args.filter_anova:
         a_list = []
         a_dict = degs_anova(matrix, column_header, row_header)
+        out_h = open(filename[:-4] + ".ANOVA.list", 'w')
         for gene in a_dict:
             if a_dict[gene] <= args.filter_anova:
-                print "Gene: %-12s P-value: %.4f" % (gene, a_dict[gene])
+                out_h.write( "%-12s P-value: %.4f\n" % (gene, a_dict[gene]) )
                 a_list.append(gene)
-        print "Filtering matrix to genes with ANOVA P-value less than %.2f" % (args.filter_anova)
+        out_h.close()
+        print "Filtering matrix to %d genes with ANOVA P-value less than %.2f" % (len(a_list), args.filter_anova)
         matrix, column_header, row_header = filter_genes(matrix, column_header, row_header, a_list)
     elif args.anova:
         a_dict = degs_anova(matrix, column_header, row_header)
+        out_h = open(filename[:-4] + ".ANOVA.list", 'w')
         for gene in a_dict:
             if a_dict[gene] <= args.anova:
-                print "Gene: %-12s P-value: %.4f" % (gene, a_dict[gene])
+                out_h.write( "%-12s P-value: %.4f\n" % (gene, a_dict[gene]) )
+        out_h.close()
 
     ## t-test analysis
     if args.ttest_thresh:
         t_list = []
         t_dict = find_degs(matrix, column_header, row_header)
+        out_h = open(filename[:-4] + ".t_test.list", 'w')
         for gene in t_dict:
             if t_dict[gene] <= args.ttest_thresh:
-                print "Gene: %-12s P-value: %.4f" % (gene, t_dict[gene])
+                out_h.write( "%-12s P-value: %.4f\n" % (gene, t_dict[gene]) )
                 t_list.append(gene)
-        print "Filtering matrix to genes with t-test P-value less than %.2f" % (args.ttest_thresh)
+        out_h.close()
+        print "Filtering matrix to %d genes with t-test P-value less than %.2f" % (len(t_list),args.ttest_thresh)
         matrix, column_header, row_header = filter_genes(matrix, column_header, row_header, t_list)
     elif args.t_test:
         t_dict = find_degs(matrix, column_header, row_header)
+        out_h = open(filename[:-4] + ".t_test.list", 'w')
         for gene in t_dict:
             if t_dict[gene] <= args.t_test:
-                print "Gene: %-12s P-value: %.4f" % (gene, t_dict[gene])
+                out_h.write( "%-12s P-value: %.4f\n" % (gene, t_dict[gene]) )
+        out_h.close()
 
     ## re-orient for publication purposes
     you_want = False    # change to True to swap the columns and rows (primarily visual).
@@ -1063,11 +1098,11 @@ if __name__ == '__main__':
     ## perform hierarchical clustering
     if len(matrix)>0:
         try:
-            heatmap(matrix, row_header, column_header, args.row_method, args.column_method, args.row_metric, args.column_metric, args.color_gradient, data_table)
+            heatmap(matrix, row_header, column_header, args.row_method, args.column_method, args.row_metric, args.column_metric, args.color_gradient, filename)
         except Exception:
             print 'Error using %s ... trying euclidean instead' % args.row_metric
 
             try:
-                heatmap(matrix, row_header, column_header, args.row_method, args.column_method, 'euclidean', 'euclidean', args.color_gradient, data_table)
+                heatmap(matrix, row_header, column_header, args.row_method, args.column_method, 'euclidean', 'euclidean', args.color_gradient, filename)
             except IOError:
                 print 'Error with clustering encountered'
