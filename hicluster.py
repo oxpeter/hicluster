@@ -135,23 +135,12 @@ def heatmap(x, row_header, column_header, row_method,
         D2 = dist.squareform(d2)
         ax2 = fig.add_axes([ax2_x, ax2_y, ax2_w, ax2_h], frame_on=True)
         Y2 = sch.linkage(D2, method=column_method, metric=column_metric) ### array-clustering metric - 'average', 'single', 'centroid', 'complete'
-        """print "number of elements in Y2:", len(Y2)
-        for element in Y2:
-            for value in element:
-                if value < 0:
-                    print element"""
-        #print len(Y2), size(Y2)
-        numpy.clip(Y2[:,2], 0, 1, Y2[:,2])
-        #print len(Y2), size(Y2)
-        """print "number of elements in Y2 after clipping:", len(Y2)
-        for element in Y2:
-            for value in element:
-                if value < 0:
-                    print element
-
-        print "The minimum value in the distance matrix is: %r" % (numpy.min(Y2))
-        """
+        # distances in linkage array can occasionally be negative due to floating point
+        # calculation error. Therefore, clip third column inarray to remove negative
+        # values (by making them zero):
+        numpy.clip(Y2[:,2], 0, 100000, Y2[:,2])
         Z2 = sch.dendrogram(Y2)
+        # assign to clusters based on distances within and between individuals in clusters:
         ind2 = sch.fcluster(Y2,0.7*max(Y2[:,2]),'distance') ### This is the default behavior of dendrogram
         ax2.set_xticks([]) ### Hides ticks
         ax2.set_yticks([])
@@ -181,10 +170,10 @@ def heatmap(x, row_header, column_header, row_method,
     xt = x
     if column_method != None:
 
+        ## create a list containing the order of the rearranged matrix:
         idx2 = Z2['leaves'] ### apply the clustering for the array-dendrograms to the actual matrix data
         xt = xt[:,idx2]
-        ind2 = [ ind2[i] for i in idx2]
-
+        ind2 = [ ind2[i] for i in idx2] # similarly organises the cluster assignment list
         #ind2 = ind2[:,idx2] ### reorder the flat cluster to match the order of the leaves the dendrogram
     if row_method != None:
         idx1 = Z1['leaves'] ### apply the clustering for the gene-dendrograms to the actual matrix data
@@ -202,11 +191,11 @@ def heatmap(x, row_header, column_header, row_method,
     for i in range(x.shape[0]):
         if row_method != None:
             if len(row_header)<100: ### Don't visualize gene associations when more than 100 rows
-                axm.text(x.shape[1]-0.5, i, '  '+row_header[idx1[i]])
+                axm.text(x.shape[1]-0.5, i, '  ' + row_header[idx1[i]])
             new_row_header.append(row_header[idx1[i]])
         else:
             if len(row_header)<100: ### Don't visualize gene associations when more than 100 rows
-                axm.text(x.shape[1]-0.5, i, '  '+row_header[i]) ### When not clustering rows
+                axm.text(x.shape[1]-0.5, i, '  ' + row_header[i]) ### When not clustering rows
             new_row_header.append(row_header[i])
     for i in range(x.shape[1]):
         if column_method != None:
@@ -214,10 +203,10 @@ def heatmap(x, row_header, column_header, row_method,
             #    print "i: %-3s idx[i]: %-5s column_header[idx2[i]]: %s" % (i, idx2[i], column_header[idx2[i]])
             #except:
             #    print "i: %s idx[i]: %s" % (i, idx2[i])
-            axm.text(i, -0.9, ' '+column_header[idx2[i]-1], rotation=270, verticalalignment="top") # PO added -1 to idx2 indexing rotation could also be degrees
-            new_column_header.append(column_header[idx2[i]-1]) #PO added -1 to idx2[i] indexing
+            axm.text(i, -0.9, ' ' + column_header[idx2[i]], rotation=270, verticalalignment="top") #  rotation could also be degrees
+            new_column_header.append(column_header[idx2[i]])
         else: ### When not clustering columns
-            axm.text(i, -0.9, ' '+column_header[i], rotation=270, verticalalignment="top")
+            axm.text(i, -0.9, ' ' + column_header[i], rotation=270, verticalalignment="top")
             new_column_header.append(column_header[i])
 
 
@@ -537,6 +526,7 @@ def filter_matrix(x, column_header, row_header, hitlist):
 
     n = len(y[0]); m = len(y) # m = 6 samples, n = 6000 genes
     print "there are now %d genes and %d samples" % (n, m)
+    print column_header
 
     return y, column_header, row_header
 
@@ -933,7 +923,7 @@ if __name__ == '__main__':
     # analysis options
     parser.add_argument("-z", "--row_header", type=str, dest="row_header", default=False, help="Not sure why this was put here")
     parser.add_argument("-R", "--row_method", type=str, dest="row_method", default='complete', help="The clustering method for rows \n(single, average, complete, etc)")
-    parser.add_argument("-C", "--column_method", type=str, dest="column_method", default='complete', help="The clustering method for columns \n(single, average, complete, etc)")
+    parser.add_argument("-C", "--column_method", type=str, dest="column_method", default='complete', help="The clustering method for columns \n(single, average, complete, weighted, ward, centroid, etc)")
     parser.add_argument("-r", "--row_metric", type=str, dest="row_metric", default='correlation', help="The distance metric for rows \n(euclidean, correlation, cosine, manhattan, etc)")
     parser.add_argument("-c", "--column_metric", type=str, dest="column_metric", default='correlation', help="The distance metric for columns \n(euclidean, correlation, manhattan, etc)")
     parser.add_argument("-P", "--pca", action='store_true',  help="Performs principal component analysis.")
@@ -1015,9 +1005,8 @@ if __name__ == '__main__':
 
     ## filter by provided gene list
     if args.gene_list:
-        print args.gene_list
-        if args.gene_list != 'ttest':
-            matrix, column_header, row_header = filter_genes(matrix, column_header, row_header, args.gene_list, col_num=0)
+        print "Only keeping genes provided in", args.gene_list
+        matrix, column_header, row_header = filter_genes(matrix, column_header, row_header, args.gene_list, col_num=0)
 
     ## filter by magnitude, minimum values and maximum values
     if not args.filter_off:
