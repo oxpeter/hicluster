@@ -60,6 +60,10 @@ def heatmap(x, row_header, column_header, row_method,
 
     x is an m by n ndarray, m observations, n genes
     """
+    n = len(x[0]); m = len(x) # m  samples, n  genes
+    print "Size of array: %d genes and %d samples.\nSize of header: %d genes\nSize of sample header: %d " % (n, m, len(column_header), len(row_header) )
+
+    assert len(column_header) == n
 
     ### Define the color gradient to use based on the provided name
     n = len(x[0]); m = len(x)
@@ -494,7 +498,7 @@ def filter_genes(x, column_header, row_header, genefile, col_num=0):
 
     return y, column_header, row_header
 
-def filterData(x, column_header, row_header, mag=2.5, min_thresh=10, max_thresh=1000000):
+def filterData(x, column_header, row_header, mag=1.13, min_thresh=10, max_thresh=1000000):
     """filters out any gene for which the magnitude of expression is less than mag,
     or for which the maximum value of all samples is less than min_thresh,
     or for which the maximum value is greater than max_thresh"""
@@ -507,6 +511,7 @@ def filterData(x, column_header, row_header, mag=2.5, min_thresh=10, max_thresh=
         fpkm_max = max(x[:,g])
         fpkm_min = min(x[:,g])
         size = numpy.absolute(fpkm_max/(fpkm_min + 0.00001))
+        #rms  = numpy.sqrt( sum(a**2 for a in x[:,g])/m )
         if size < mag or fpkm_max < min_thresh or fpkm_max > max_thresh :
             hitlist.append(g)
 
@@ -526,7 +531,7 @@ def filter_matrix(x, column_header, row_header, hitlist):
 
     n = len(y[0]); m = len(y) # m = 6 samples, n = 6000 genes
     print "there are now %d genes and %d samples" % (n, m)
-    print column_header
+    #print column_header
 
     return y, column_header, row_header
 
@@ -690,11 +695,20 @@ def importData(filename):
                     matrix.append(s)
                     row_header.append(t[0])
 
+
+    # check appropriate number of items added to column header:
+    if len(matrix[0]) != len(column_header):
+        print "Fixing column header"
+        filename_h = open(filename, 'rb')
+        column_header = filename_h.next().split()[:]
+        filename_h.close()
+
     time_diff = str(round(time.time()-start_time,1))
     try:
         print '\n%d rows and %d columns imported for %s in %s seconds...' % (len(matrix),len(column_header),dataset_name,time_diff)
     except Exception:
         print 'No data in input file.'; force_error
+
     return numpy.array(matrix), column_header, row_header
 
 def clean_header(row_header):
@@ -702,9 +716,9 @@ def clean_header(row_header):
 
     new_headers = []
     for name in row_header:
-        if re.search('/',name):
+        try:
             newname = re.findall('/([^/]*)', name)[-2]
-        else:
+        except:
             newname = name
         new_headers.append(newname)
 
@@ -935,7 +949,7 @@ if __name__ == '__main__':
     parser.add_argument("-g", "--color_gradient", type=str, dest="color_gradient", default='red_white_blue', help="The colour scheme \n(red_white_blue, red_black_sky, red_black_blue, \nred_black_green, yellow_black_blue, seismic, \ngreen_white_purple, coolwarm)")
     parser.add_argument("-d", "--distribution", action='store_true', default=False, help="Shows FPKM distribution of each sample before and after normalisation")
     # filtering options
-    parser.add_argument("-m", "--magnitude", type=float, dest="filter", default=2.5, help="Filters out genes with magnitude of range less than value given. Default = 2.5")
+    parser.add_argument("-m", "--magnitude", type=float, dest="filter", default=2.5, help="Filters out genes with magnitude of range less than value given. Default = 1.13")
     parser.add_argument("-L", "--gene_list", type=str, dest="gene_list", default=None, help="Allows provision of a file containing a list of genes for inclusion in the clustering (ie, will filter out all genes NOT in the list provided). Otherwise, all genes will be included.")
     parser.add_argument("-p", "--fpkm_max", type=float, dest="fpkm_max", default=1000000, help="Filters out genes with maximum fpkm greater than value given. Default = 1 000 000")
     parser.add_argument("-q", "--fpkm_min", type=int, dest="fpkm_min", default=10, help="Filters out genes with maximum fpkm less than value given. Default = 10")
