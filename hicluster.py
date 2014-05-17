@@ -27,6 +27,8 @@ import scipy.cluster.hierarchy as sch
 import scipy.spatial.distance as dist
 import numpy
 
+import genematch
+
 ################# Perform the hierarchical clustering #################
 ###  heatmap function updated from original code hierarchical_clustering.py
 #    Copyright 2005-2012 J. David Gladstone Institutes, San Francisco California
@@ -259,6 +261,8 @@ def heatmap(x, row_header, column_header, row_method,
     filename = filename[:-4]+'.png'
     plt.savefig(pdfname, dpi=200) #,dpi=100
     plt.show()
+
+    return new_column_header, ind2  # this is to allow group-specific KEGG enrichment analysis
 
 def getColorRange(x):
     """ Determines the range of colors, centered at zero, for normalizing cmap """
@@ -945,6 +949,7 @@ if __name__ == '__main__':
     parser.add_argument("-A", "--filter_anova", type=float, help="Perform ANOVA and filter genes to keep only those with P-value less than value given")
     parser.add_argument("-s", "--t_test", type=float,  help="Perform student's t-test on two groups, and report genes with P-value less than value specified")
     parser.add_argument("-S", "--filter_t", type=float, dest="ttest_thresh", help="Perform student's t-test and filter genes to keep only those with P-value less than value given")
+    parser.add_argument("-K", "--kegg", action='store_true', help="Perform KEGG module enrichment analysis on gene clusters")
     # viewing options
     parser.add_argument("-g", "--color_gradient", type=str, dest="color_gradient", default='red_white_blue', help="The colour scheme \n(red_white_blue, red_black_sky, red_black_blue, \nred_black_green, yellow_black_blue, seismic, \ngreen_white_purple, coolwarm)")
     parser.add_argument("-d", "--distribution", action='store_true', default=False, help="Shows FPKM distribution of each sample before and after normalisation")
@@ -955,7 +960,7 @@ if __name__ == '__main__':
     parser.add_argument("-q", "--fpkm_min", type=int, dest="fpkm_min", default=10, help="Filters out genes with maximum fpkm less than value given. Default = 10")
     parser.add_argument("-f", "--filter_off", action='store_true', help="Turns off filtering. ")
     parser.add_argument("-y", "--pretty_filter", type=float, default=None, help="Filters (non-normalised) matrix to remove genes whose mean value between treatments is less than value given. Try 2.5")
-    parser.add_argument("-k", "--kill_PC1", action='store_true', help="removes first principal component")
+    parser.add_argument("--kill_PC1", action='store_true', help="removes first principal component")
     # data transform options
     parser.add_argument("-t", "--transform_off", action='store_true', default=False, help="Turns off log2(FPKM + 1) transformation (prior to normalisation if selected).")
     parser.add_argument("-n", "--normalise_off", action='store_true', default=False, help="Turns off normalisation. Normalises by dividing by the standard deviation.")
@@ -1108,11 +1113,37 @@ if __name__ == '__main__':
     ## perform hierarchical clustering
     if len(matrix)>0:
         try:
-            heatmap(matrix, row_header, column_header, args.row_method, args.column_method, args.row_metric, args.column_metric, args.color_gradient, filename)
+            new_column_header, groups = heatmap(matrix, row_header, column_header, args.row_method, args.column_method, args.row_metric, args.column_metric, args.color_gradient, filename)
         except Exception:
             print 'Error using %s ... trying euclidean instead' % args.row_metric
 
             try:
-                heatmap(matrix, row_header, column_header, args.row_method, args.column_method, 'euclidean', 'euclidean', args.color_gradient, filename)
+                new_column_header, groups = heatmap(matrix, row_header, column_header, args.row_method, args.column_method, 'euclidean', 'euclidean', args.color_gradient, filename)
             except IOError:
                 print 'Error with clustering encountered'
+                new_column_header = ['']
+                groups = ['']
+
+    if args.kegg:
+
+        leafpairs = zip(groups, new_column_header)
+        genelistd = {}
+        for group,geneid in leafpairs:
+            try:
+                genelistd[group].append(geneid)
+            except KeyError:
+                genelistd[group] = [geneid]
+
+        print "Performing KEGG pathway enrichment analysis for %d groups" % (len(genelistd))
+        out_h = open(filename[:-4] + ".KEGG_enrichment.list", 'w')
+
+        out_h.write("Group\tKEGG module P-value\n")
+
+        for group in genelistd:
+            modps, fnps = genematch.kegg_enrichment(genelistd[group])
+            for ko in modps:
+                if modps[ko] <= 1.05:
+                    out_h.write( "%-4s %-7s %.5f\n" % (group, ko, modps[ko]) )
+        out_h.close()
+
+
