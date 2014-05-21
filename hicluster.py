@@ -51,7 +51,7 @@ import genematch
 
 def heatmap(x, row_header, column_header, row_method,
             column_method, row_metric, column_metric,
-            color_gradient, filename):
+            color_gradient, filename, display=True):
 
     print "\nPerforming hiearchical clustering using %s for columns and %s for rows" % (column_metric,row_metric)
 
@@ -260,7 +260,8 @@ def heatmap(x, row_header, column_header, row_method,
     print 'Exporting:',pdfname
     filename = filename[:-4]+'.png'
     plt.savefig(pdfname, dpi=200) #,dpi=100
-    plt.show()
+    if display:
+        plt.show()
 
     return new_column_header, ind2  # this is to allow group-specific KEGG enrichment analysis
 
@@ -949,10 +950,12 @@ if __name__ == '__main__':
     parser.add_argument("-A", "--filter_anova", type=float, help="Perform ANOVA and filter genes to keep only those with P-value less than value given")
     parser.add_argument("-s", "--t_test", type=float,  help="Perform student's t-test on two groups, and report genes with P-value less than value specified")
     parser.add_argument("-S", "--filter_t", type=float, dest="ttest_thresh", help="Perform student's t-test and filter genes to keep only those with P-value less than value given")
-    parser.add_argument("-K", "--kegg", action='store_true', help="Perform KEGG module enrichment analysis on gene clusters")
+    parser.add_argument("-K", "--kegg", action='store_true', help="Perform KEGG pathway enrichment analysis on gene clusters")
+    parser.add_argument("-E", "--go_enrichment", action='store_true', help="Perform GO term enrichment analysis on gene clusters")
     # viewing options
     parser.add_argument("-g", "--color_gradient", type=str, dest="color_gradient", default='red_white_blue', help="The colour scheme \n(red_white_blue, red_black_sky, red_black_blue, \nred_black_green, yellow_black_blue, seismic, \ngreen_white_purple, coolwarm)")
     parser.add_argument("-d", "--distribution", action='store_true', default=False, help="Shows FPKM distribution of each sample before and after normalisation")
+    parser.add_argument("--display_off", action='store_true', help="Turn of displaying of clustering")
     # filtering options
     parser.add_argument("-m", "--magnitude", type=float, dest="filter", default=2.5, help="Filters out genes with magnitude of range less than value given. Default = 1.13")
     parser.add_argument("-L", "--gene_list", type=str, dest="gene_list", default=None, help="Allows provision of a file containing a list of genes for inclusion in the clustering (ie, will filter out all genes NOT in the list provided). Otherwise, all genes will be included.")
@@ -1113,19 +1116,42 @@ if __name__ == '__main__':
     ## perform hierarchical clustering
     if len(matrix)>0:
         try:
-            new_column_header, groups = heatmap(matrix, row_header, column_header, args.row_method, args.column_method, args.row_metric, args.column_metric, args.color_gradient, filename)
+            new_column_header, groups = heatmap(matrix, row_header, column_header, args.row_method, args.column_method, args.row_metric, args.column_metric, args.color_gradient, filename, display=not(args.display_off))
         except Exception:
             print 'Error using %s ... trying euclidean instead' % args.row_metric
 
             try:
-                new_column_header, groups = heatmap(matrix, row_header, column_header, args.row_method, args.column_method, 'euclidean', 'euclidean', args.color_gradient, filename)
+                new_column_header, groups = heatmap(matrix, row_header, column_header, args.row_method, args.column_method, 'euclidean', 'euclidean', args.color_gradient, filename, display=not(args.display_off))
             except IOError:
                 print 'Error with clustering encountered'
                 new_column_header = ['']
                 groups = ['']
 
-    if args.kegg:
+    if args.go_enrichment:
 
+        leafpairs = zip(groups, new_column_header)
+        genelistd = {}
+        for group,geneid in leafpairs:
+            try:
+                genelistd[group].append(geneid)
+            except KeyError:
+                genelistd[group] = [geneid]
+
+        print "Performing GO enrichment analysis for %d groups" % (len(genelistd))
+        out_h = open(filename[:-4] + ".GO_enrichment.list", 'w')
+
+        out_h.write("Group GOterm P-value\n")
+        go_monster = genematch.GO_maker()
+
+        for group in genelistd:
+            #pathway_ps = genematch.kegg_pathway_enrichment(genelistd[group])
+            gops = genematch.go_enrichment(genelistd[group])
+            for goterm in gops:
+                if gops[goterm] < 0.05:
+                    out_h.write( "%-4s %-7s %.5f %s\n" % (group, goterm, gops[goterm], str(go_monster.define_go(goterm))) )
+        out_h.close()
+
+    if args.kegg:
         leafpairs = zip(groups, new_column_header)
         genelistd = {}
         for group,geneid in leafpairs:
@@ -1137,13 +1163,13 @@ if __name__ == '__main__':
         print "Performing KEGG pathway enrichment analysis for %d groups" % (len(genelistd))
         out_h = open(filename[:-4] + ".KEGG_enrichment.list", 'w')
 
-        out_h.write("Group\tKEGG module P-value\n")
+        out_h.write("Group KEGG pathway P-value\n")
 
         for group in genelistd:
-            modps, fnps = genematch.kegg_enrichment(genelistd[group])
-            for ko in modps:
-                if modps[ko] <= 1.05:
-                    out_h.write( "%-4s %-7s %.5f\n" % (group, ko, modps[ko]) )
+            pathway_ps = genematch.kegg_pathway_enrichment(genelistd[group])
+            #gops = genematch.go_enrichment(genelistd[group])
+            for ko in pathway_ps:
+                if pathway_ps[ko] < 0.05:
+                    out_h.write( "%-4s %-7s %.5f %s\n" % (group, goterm, pathway_ps[ko]) )
         out_h.close()
-
 
