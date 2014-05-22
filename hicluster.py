@@ -1221,6 +1221,8 @@ if __name__ == '__main__':
         row_header = tempcol
 
     ## perform hierarchical clustering
+    if args.row_method == 'flat':
+        args.row_method = None
     if len(matrix)>0:
         try:
             new_column_header, groups = heatmap(matrix, row_header, column_header, args.row_method, args.column_method, args.row_metric, args.column_metric, args.color_gradient, filename, display=not(args.display_off), kegg=args.kegg, go=args.go_enrichment)
