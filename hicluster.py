@@ -196,7 +196,7 @@ def heatmap(x, row_header, column_header, row_method,
     new_row_header=[]
     new_column_header=[]
     for i in range(x.shape[0]):
-        if row_method != "flat":
+        if row_method != None:
             if len(row_header)<100: ### Don't visualize gene associations when more than 100 rows
                 axm.text(x.shape[1]-0.5, i, '  ' + row_header[idx1[i]])
             new_row_header.append(row_header[idx1[i]])
@@ -205,7 +205,7 @@ def heatmap(x, row_header, column_header, row_method,
                 axm.text(x.shape[1]-0.5, i, '  ' + row_header[i]) ### When not clustering rows
             new_row_header.append(row_header[i])
     for i in range(x.shape[1]):
-        if column_method != "flat":
+        if column_method != None:
             #axm.text(i, -0.9, ' ' + column_header[idx2[i]], rotation=270, verticalalignment="top") #  rotation could also be degrees
             new_column_header.append(column_header[idx2[i]])
         else: ### When not clustering columns
