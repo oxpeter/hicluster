@@ -51,7 +51,8 @@ import genematch
 
 def heatmap(x, row_header, column_header, row_method,
             column_method, row_metric, column_metric,
-            color_gradient, filename, display=True):
+            color_gradient, filename, display=True,
+            kegg=False, go=False):
 
     print "\nPerforming hiearchical clustering using %s for columns and %s for rows" % (column_metric,row_metric)
 
@@ -95,7 +96,7 @@ def heatmap(x, row_header, column_header, row_method,
     norm = mpl.colors.Normalize(vmin/2, vmax/2) ### adjust the max and min to scale these colors
 
     ### Scale the Matplotlib window size
-    default_window_hight = 8.5
+    default_window_hight = 14.5 # 8.5
     default_window_width = 16
     fig = plt.figure(figsize=(default_window_width,default_window_hight)) ### could use m,n to scale here
     color_bar_w = 0.015 ### Sufficient size to show
@@ -103,7 +104,7 @@ def heatmap(x, row_header, column_header, row_method,
     ## calculate positions for all elements
     # ax1, placement of dendrogram 1, on the left of the heatmap
     #if row_method != None: w1 =
-    [ax1_x, ax1_y, ax1_w, ax1_h] = [0.05,0.22,0.2,0.6]   ### The second value controls the position of the matrix relative to the bottom of the view
+    [ax1_x, ax1_y, ax1_w, ax1_h] = [0.05,0.42,0.2,0.4] # [0.05,0.22,0.2,0.6]   ### The second value controls the position of the matrix relative to the bottom of the view
     width_between_ax1_axr = 0.004
     height_between_ax1_axc = 0.004 ### distance between the top color bar axis and the matrix
 
@@ -191,11 +192,11 @@ def heatmap(x, row_header, column_header, row_method,
     axm.set_xticks([]) ### Hides x-ticks
     axm.set_yticks([])
 
-    # Add text
+    # Add text for row data, rearrange column headers according to clustering:
     new_row_header=[]
     new_column_header=[]
     for i in range(x.shape[0]):
-        if row_method != None:
+        if row_method != "flat":
             if len(row_header)<100: ### Don't visualize gene associations when more than 100 rows
                 axm.text(x.shape[1]-0.5, i, '  ' + row_header[idx1[i]])
             new_row_header.append(row_header[idx1[i]])
@@ -204,16 +205,77 @@ def heatmap(x, row_header, column_header, row_method,
                 axm.text(x.shape[1]-0.5, i, '  ' + row_header[i]) ### When not clustering rows
             new_row_header.append(row_header[i])
     for i in range(x.shape[1]):
-        if column_method != None:
-            #try:
-            #    print "i: %-3s idx[i]: %-5s column_header[idx2[i]]: %s" % (i, idx2[i], column_header[idx2[i]])
-            #except:
-            #    print "i: %s idx[i]: %s" % (i, idx2[i])
-            axm.text(i, -0.9, ' ' + column_header[idx2[i]], rotation=270, verticalalignment="top") #  rotation could also be degrees
+        if column_method != "flat":
+            #axm.text(i, -0.9, ' ' + column_header[idx2[i]], rotation=270, verticalalignment="top") #  rotation could also be degrees
             new_column_header.append(column_header[idx2[i]])
         else: ### When not clustering columns
-            axm.text(i, -0.9, ' ' + column_header[i], rotation=270, verticalalignment="top")
+            #axm.text(i, -0.9, ' ' + column_header[i], rotation=270, verticalalignment="top")
             new_column_header.append(column_header[i])
+
+
+
+
+    ## perform enrichment analyses, and modify gene header to show relevent go terms:
+    if go:
+        # create list of genes in each group:
+        leafpairs = zip(ind2, new_column_header)
+        genelistd = {}
+        for group,geneid in leafpairs:
+            try:
+                genelistd[group].append(geneid)
+            except KeyError:
+                genelistd[group] = [geneid]
+
+        print "Performing GO enrichment analysis for %d groups" % (len(genelistd))
+        out_h = open(filename[:-4] + ".GO_enrichment.list", 'w')
+
+        out_h.write("Group GOterm P-value\n")
+        go_monster = genematch.GO_maker()
+        # perform hypergeometric test (one-sided fishers exact test) on each group:
+        for group in genelistd:
+            gops = genematch.go_enrichment(genelistd[group])
+            for goterm in gops:
+                if gops[goterm] < 0.05: # this is a very weak threshold. Will need to do multiple test adjustment!
+                    out_h.write( "%-4s %-7s %.5f %s\n" % (group, goterm, gops[goterm], str(go_monster.define_go(goterm))) )
+                    # modify gene header by appending go term to gene name
+                    even_newer_header = new_column_header
+                    new_column_header[:] = [ appendgo(geneid, goterm, go_monster) for geneid in new_column_header ]
+                    """
+                    for geneid in new_column_header:
+                        if goterm in go_monster.findem(geneid.split()[0]):
+                            geneid = " ".join([geneid, goterm, go_monster.define_go(goterm)[0]])
+                            print geneid
+                    """
+        out_h.close()
+
+    if kegg:
+        leafpairs = zip(ind2, new_column_header)
+        genelistd = {}
+        for group,geneid in leafpairs:
+            try:
+                genelistd[group].append(geneid)
+            except KeyError:
+                genelistd[group] = [geneid]
+
+        print "Performing KEGG pathway enrichment analysis for %d groups" % (len(genelistd))
+        out_h = open(filename[:-4] + ".KEGG_enrichment.list", 'w')
+
+        out_h.write("Group KEGG pathway P-value\n")
+
+        for group in genelistd:
+            pathway_ps = genematch.kegg_pathway_enrichment(genelistd[group])
+            #gops = genematch.go_enrichment(genelistd[group])
+            for ko in pathway_ps:
+                if pathway_ps[ko] < 0.05: # this is a very weak threshold. Will need to do multiple test adjustment!
+                    out_h.write( "%-4s %-7s %.5f %s\n" % (group, goterm, pathway_ps[ko]) )
+        out_h.close()
+
+
+
+    # Add text for column data:
+    for i in range(x.shape[1]):
+        if len(column_header)<200:
+            axm.text(i - 0.3, -0.9, ' ' + new_column_header[i], rotation=270, verticalalignment="top")
 
 
     # Plot colside colors
@@ -251,8 +313,8 @@ def heatmap(x, row_header, column_header, row_method,
     exportFlatClusterData(pdfname, new_row_header,new_column_header,xt,ind1,ind2)
 
     ### Render the graphic
-    if len(row_header)>50 or len(column_header)>50:
-        plt.rcParams['font.size'] = 10 #5
+    if len(row_header)>50 or len(column_header)>50 or max(len(term) for term in new_column_header) > 80:
+        plt.rcParams['font.size'] = 7 #5
     else:
         plt.rcParams['font.size'] = 10 #8
 
@@ -262,6 +324,7 @@ def heatmap(x, row_header, column_header, row_method,
     plt.savefig(pdfname, dpi=200) #,dpi=100
     if display:
         plt.show()
+
 
     return new_column_header, ind2  # this is to allow group-specific KEGG enrichment analysis
 
@@ -280,6 +343,47 @@ def getColorRange(x):
         return vmax,vmin
 
 ################# Export the flat cluster data #####################################
+
+def export_expression_table(filename, new_column_header, new_row_header, xt):
+    nfilename = filename[:-4] + '.data.tbl'
+    "for when you need to create the data table but it's too big to analyse..."
+    export_text = open(nfilename,'w')
+    column_header = string.join(['gene']+new_column_header,'\t')+'\n' ### format column-names for export
+    export_text.write(column_header)
+
+    ### The clusters, dendrogram and flat clusters are drawn bottom-up, so we need to reverse the order to match
+    new_row_header = new_row_header[::-1]
+    xt = xt[::-1]
+
+    ### Export each row in the clustered data matrix xt
+    i=0
+    for row in xt:
+        export_text.write(string.join([new_row_header[i]]+map(str, row),'\t')+'\n')
+        i+=1
+    export_text.close()
+
+    ### Transpose text file for easier reading!
+    oldfile_h = open(nfilename, 'rb')
+
+    elements = [ line.split() for line in oldfile_h ]
+    oldfile_h.close()
+
+    biglist = []
+    for splitline in elements:
+        #print len(splitline)
+        #print splitline
+        biglist.append(splitline)
+    newarray = numpy.array(biglist)
+    #print numpy.shape(newarray)
+    t_array = newarray.transpose()
+    #print numpy.shape(t_array)
+    #print newarray[:,0]
+
+    newfile_h = open(nfilename + ".transposed.txt" , 'w')
+    for row in t_array:
+        #print "The row is currently: %r" % row
+        newfile_h.write("\t".join(row) + "\n")
+    newfile_h.close()
 
 def exportFlatClusterData(filename, new_row_header,new_column_header,xt,ind1,ind2):
     """ Export the clustered results as a text file, only indicating the flat-clusters rather than the tree """
@@ -904,7 +1008,7 @@ def find_degs(x, column_header, row_header, group1="_F", group2="_S"):
 def degs_anova(x, column_header, row_header, group1="_F", group2="_S"):
     "finds DEGs using ANOVA and returns dictionary { Gene:P-value }"
 
-    matrix_reord, column_header, reord_row_header, limits = reorder_matrix(x, column_header, row_header, groups=["SL12", "SL24","SL48", "SL96","FP12", "FP24","FP48", "FP96"])     # groups=["SL12","SL24","SL48","SL96","FP12","FP24","FP48","FP96","SP12","FL12"])
+    matrix_reord, column_header, reord_row_header, limits = reorder_matrix(x, column_header, row_header, groups=["SL12", "SL24","SL48", "SL96","FP12", "FP24","FP48", "FP96", "FL", "SP"])     # groups=["SL12","SL24","SL48","SL96","FP12","FP24","FP48","FP96","SP12","FL12"])
     n = len(matrix_reord[0]); m = len(matrix_reord) # m  samples, n  genes
 
     # boundaries in matrix for each time point:
@@ -921,12 +1025,18 @@ def degs_anova(x, column_header, row_header, group1="_F", group2="_S"):
             matrix_reord[limits[0]:limits[1],g], matrix_reord[limits[1]:limits[2],g],\
             matrix_reord[limits[2]:limits[3],g], matrix_reord[limits[3]:limits[4],g],\
             matrix_reord[limits[4]:limits[5],g], matrix_reord[limits[5]:limits[6],g],\
-            matrix_reord[limits[6]:limits[7],g])
+            matrix_reord[limits[6]:limits[7],g], matrix_reord[limits[7]:limits[8],g],\
+            matrix_reord[limits[8]:limits[9],g])
         A_dict[column_header[g]] = p_val
 
     return A_dict
 
+################# Miscellaneous methods #############################################
 
+def appendgo(geneid, goterm, go_obj):
+    if goterm in go_obj.findem(geneid.split()[0]):
+        geneid = " ".join([geneid, goterm, go_obj.define_go(goterm)[0]])
+    return  geneid
 
 ####################################################################################
 
@@ -939,6 +1049,7 @@ if __name__ == '__main__':
     parser.add_argument("-B", "--build_table", type=str, dest="build_list", default=None, help="Provide a comma-delimited list of cufflinks files with which to build the fpkm table for analysis.")
     # output options
     parser.add_argument("-o", "--output_file", dest='filename', type=str, default=None, help="output file name for results")
+    parser.add_argument("-e", "--export_table", action='store_true', help="export transformed expression matrix")
     # analysis options
     parser.add_argument("-z", "--row_header", type=str, dest="row_header", default=False, help="Not sure why this was put here")
     parser.add_argument("-R", "--row_method", type=str, dest="row_method", default='complete', help="The clustering method for rows \n(single, average, complete, etc)")
@@ -1035,7 +1146,7 @@ if __name__ == '__main__':
         matrix, column_header, row_header = filterData(matrix, column_header, row_header,  mag=args.filter, min_thresh=args.fpkm_min, max_thresh=args.fpkm_max)
 
 
-    ####### ANALYSIS OPTIONS ##############
+    ####### NORMALISATION OPTIONS ##############
 
     ## show gene distribution
     if args.distribution:
@@ -1048,20 +1159,16 @@ if __name__ == '__main__':
     if args.distribution:
         expression_dist(matrix, column_header, row_header, args.data_file, min_x=-2, max_x=2)
 
+    ## export transformed data table:
+    if args.export_table:
+        export_expression_table(filename, column_header, row_header, matrix)
+
+    ####### ANALYSIS OPTIONS ##############
+
     ## Principal Component Analysis:
     if args.pca:
         matrix_red = analyse_pca(matrix, column_header, row_header, data_table)
 
-        print "Saving reduced PC data table to ", data_table + "_reduced_PCs.tbl"
-        file_h = open(data_table + "_reduced_PCs.tbl", 'w')
-        file_h.write("Gene_name\t%s\n" % ("\t".join(column_header)))
-        sample_count = 0
-        for row in matrix_red:
-            sample_str = str(row_header[sample_count])
-            row_str = "\t".join([ str(i) for i in row ])
-            file_h.write("%s\t%s\n" % ( sample_str, row_str ))
-            sample_count += 1
-        file_h.close()
     if args.kill_PC1:
         matrix = matrix_red
 
@@ -1116,17 +1223,17 @@ if __name__ == '__main__':
     ## perform hierarchical clustering
     if len(matrix)>0:
         try:
-            new_column_header, groups = heatmap(matrix, row_header, column_header, args.row_method, args.column_method, args.row_metric, args.column_metric, args.color_gradient, filename, display=not(args.display_off))
+            new_column_header, groups = heatmap(matrix, row_header, column_header, args.row_method, args.column_method, args.row_metric, args.column_metric, args.color_gradient, filename, display=not(args.display_off), kegg=args.kegg, go=args.go_enrichment)
         except Exception:
             print 'Error using %s ... trying euclidean instead' % args.row_metric
 
             try:
-                new_column_header, groups = heatmap(matrix, row_header, column_header, args.row_method, args.column_method, 'euclidean', 'euclidean', args.color_gradient, filename, display=not(args.display_off))
+                new_column_header, groups = heatmap(matrix, row_header, column_header, args.row_method, args.column_method, 'euclidean', 'euclidean', args.color_gradient, filename, display=not(args.display_off), kegg=args.kegg, go=args.go_enrichment)
             except IOError:
                 print 'Error with clustering encountered'
                 new_column_header = ['']
                 groups = ['']
-
+"""
     if args.go_enrichment:
 
         leafpairs = zip(groups, new_column_header)
@@ -1172,4 +1279,4 @@ if __name__ == '__main__':
                 if pathway_ps[ko] < 0.05:
                     out_h.write( "%-4s %-7s %.5f %s\n" % (group, goterm, pathway_ps[ko]) )
         out_h.close()
-
+"""
