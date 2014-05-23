@@ -88,6 +88,7 @@ def heatmap(x, row_header, column_header, row_method,
         cmap=plt.cm.coolwarm
 
     ### Scale the max and min colors so that 0 is white/black
+
     vmin=x.min()
     #print "line 77: vmin = %.5f\nm = %d\nn = %d" % (vmin, m, n)
     vmax=x.max()
@@ -1051,7 +1052,6 @@ if __name__ == '__main__':
     parser.add_argument("-o", "--output_file", dest='filename', type=str, default=None, help="output file name for results")
     parser.add_argument("-e", "--export_table", action='store_true', help="export transformed expression matrix")
     # analysis options
-    parser.add_argument("-z", "--row_header", type=str, dest="row_header", default=False, help="Not sure why this was put here")
     parser.add_argument("-R", "--row_method", type=str, dest="row_method", default='complete', help="The clustering method for rows \n(single, average, complete, etc)")
     parser.add_argument("-C", "--column_method", type=str, dest="column_method", default='complete', help="The clustering method for columns \n(single, average, complete, weighted, ward, centroid, etc)")
     parser.add_argument("-r", "--row_metric", type=str, dest="row_metric", default='correlation', help="The distance metric for rows \n(euclidean, correlation, cosine, manhattan, etc)")
