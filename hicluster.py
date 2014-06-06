@@ -18,14 +18,16 @@ import sys, os, re
 import getopt
 import argparse
 
+import numpy
 import matplotlib.pyplot as plt
 import pylab
 import matplotlib as mpl
+from mpl_toolkits.mplot3d import Axes3D
 import scipy
 from scipy import stats
 import scipy.cluster.hierarchy as sch
 import scipy.spatial.distance as dist
-import numpy
+
 
 import genematch
 
@@ -380,7 +382,7 @@ def export_expression_table(filename, new_column_header, new_row_header, xt):
     #print numpy.shape(t_array)
     #print newarray[:,0]
 
-    newfile_h = open(nfilename + ".transposed.txt" , 'w')
+    newfile_h = open(nfilename[:-4] + ".transp.tbl" , 'w')
     for row in t_array:
         #print "The row is currently: %r" % row
         newfile_h.write("\t".join(row) + "\n")
@@ -909,6 +911,25 @@ def analyse_pca(matrix, column_header, row_header, filename):
     #q_scores = numpy.dot(numpy.sqrt(S), V.T)
     q_scores = numpy.dot(U, numpy.sqrt(S))
 
+
+    fig = plt.figure(1)
+    ax = fig.add_subplot(111, projection='3d')
+    for idx in range(len(colourlist)):
+        xs = q_scores[idx,0]
+        ys = q_scores[idx,1]
+        zs = q_scores[idx,2]
+        ax.scatter(xs, ys, zs, c=colourlist[idx][0], marker='o')
+        ax.text(xs, ys, zs, names[idx])
+
+    ax.set_xlabel("PC1 (%.2f%%)" % (100.0 * (s[0]**2)/sumval))
+    ax.set_ylabel("PC2 (%.2f%%)" % (100.0 * (s[1]**2)/sumval))
+    ax.set_zlabel("PC3 (%.2f%%)" % (100.0 * (s[2]**2)/sumval))
+
+    plt.show()
+
+
+    # for two 2D graphs instead:
+    """
     for idx in range(len(colourlist)):
         fig = plt.figure(1)
 
@@ -925,6 +946,7 @@ def analyse_pca(matrix, column_header, row_header, filename):
         sub2.annotate( names[idx], xy=(q_scores[idx,0],q_scores[idx,2]),xytext=(-15,10), xycoords='data', textcoords='offset points' )
 
     plt.show()
+    """
 
     return matrix_reduced
 
@@ -956,43 +978,6 @@ def expression_dist(matrix, column_header, row_header, filename, max_x=500, min_
 def find_degs(x, column_header, row_header, group1="_F", group2="_S"):
     "finds DEGs using t-test and returns dictionary { Gene:P-value }"
 
-    """
-    t_dict = {}
-    n = len(x[0]); m = len(x) # m  samples, n  genes
-    print "Sorting genes into group: %s and group: %s" % (group1, group2)
-
-    # split matrix into two based on the specified groups;
-    group1list = []
-    group1posns = []
-    group2list = []
-    group2posns = []
-    for s in row_header:
-        if re.search(group1,s) is not None:
-            group1list.append(s)
-            group1posns.append(row_header.index(s))
-        elif re.search(group2, s) is not None:
-            group2list.append(s)
-            group2posns.append(row_header.index(s))
-        else:       # group not found in sample list
-            print "#" * 30
-            print "%s could not be matched to group1 (%s) or group2 (%s)" % (s, group1, group2)
-            print "#" * 30
-
-    print group1list
-    print group2list
-    #print group1posns
-    #print group2posns
-
-    grouporder = group1posns + group2posns
-    limit = len(group1posns)
-
-    print "grouporder", grouporder
-    print "limit", limit
-
-    matrix_reord = x[grouporder,:]
-    """
-
-
     matrix_reord, column_header, reord_row_header, limits = reorder_matrix(x, column_header, row_header, groups=["_F","_S"])
     n = len(matrix_reord[0]); m = len(matrix_reord) # m  samples, n  genes
 
@@ -1019,6 +1004,18 @@ def degs_anova(x, column_header, row_header, group1="_F", group2="_S"):
 
     print "Performing ANOVA"
 
+    groups=["SL12", "SL24","SL48", "SL96","FP12", "FP24","FP48", "FP96"]
+    A_dict = {}
+    print "limits for anova:",limits
+    for g in range(n):
+        f_val, p_val = stats.f_oneway(matrix_reord[:limits[0],g],\
+            matrix_reord[limits[0]:limits[1],g], matrix_reord[limits[1]:limits[2],g],\
+            matrix_reord[limits[2]:limits[3],g], matrix_reord[limits[3]:limits[4],g],\
+            matrix_reord[limits[4]:limits[5],g], matrix_reord[limits[5]:limits[6],g],\
+            matrix_reord[limits[6]:limits[7],g])
+        A_dict[column_header[g]] = p_val
+
+    """
     A_dict = {}
     print "limits for anova:",limits
     for g in range(n):
@@ -1029,6 +1026,7 @@ def degs_anova(x, column_header, row_header, group1="_F", group2="_S"):
             matrix_reord[limits[6]:limits[7],g], matrix_reord[limits[7]:limits[8],g],\
             matrix_reord[limits[8]:limits[9],g])
         A_dict[column_header[g]] = p_val
+    """
 
     return A_dict
 
@@ -1049,7 +1047,7 @@ if __name__ == '__main__':
     parser.add_argument("-D", "--data_file", type=str, help="The data file for analysing")
     parser.add_argument("-B", "--build_table", type=str, dest="build_list", default=None, help="Provide a comma-delimited list of cufflinks files with which to build the fpkm table for analysis.")
     # output options
-    parser.add_argument("-o", "--output_file", dest='filename', type=str, default=None, help="output file name for results")
+    parser.add_argument("-o", "--output_file", dest='filename', type=str, default=None, help="output file path and root name for results")
     parser.add_argument("-e", "--export_table", action='store_true', help="export transformed expression matrix")
     # analysis options
     parser.add_argument("-R", "--row_method", type=str, dest="row_method", default='complete', help="The clustering method for rows \n(single, average, complete, etc)")
@@ -1107,7 +1105,7 @@ if __name__ == '__main__':
         root_dir = os.path.dirname(data_table)
         filename = root_dir + "/hicluster." + timestamp + ".log"
     else:
-        filename = args.filename
+        filename = args.filename + '.' + timestamp + ".log"
 
     log_h = open(filename, 'w')
     log_h.write( "File created on %s\n" % (timestamp) )
@@ -1235,50 +1233,6 @@ if __name__ == '__main__':
                 print 'Error with clustering encountered'
                 new_column_header = ['']
                 groups = ['']
-"""
-    if args.go_enrichment:
 
-        leafpairs = zip(groups, new_column_header)
-        genelistd = {}
-        for group,geneid in leafpairs:
-            try:
-                genelistd[group].append(geneid)
-            except KeyError:
-                genelistd[group] = [geneid]
 
-        print "Performing GO enrichment analysis for %d groups" % (len(genelistd))
-        out_h = open(filename[:-4] + ".GO_enrichment.list", 'w')
 
-        out_h.write("Group GOterm P-value\n")
-        go_monster = genematch.GO_maker()
-
-        for group in genelistd:
-            #pathway_ps = genematch.kegg_pathway_enrichment(genelistd[group])
-            gops = genematch.go_enrichment(genelistd[group])
-            for goterm in gops:
-                if gops[goterm] < 0.05:
-                    out_h.write( "%-4s %-7s %.5f %s\n" % (group, goterm, gops[goterm], str(go_monster.define_go(goterm))) )
-        out_h.close()
-
-    if args.kegg:
-        leafpairs = zip(groups, new_column_header)
-        genelistd = {}
-        for group,geneid in leafpairs:
-            try:
-                genelistd[group].append(geneid)
-            except KeyError:
-                genelistd[group] = [geneid]
-
-        print "Performing KEGG pathway enrichment analysis for %d groups" % (len(genelistd))
-        out_h = open(filename[:-4] + ".KEGG_enrichment.list", 'w')
-
-        out_h.write("Group KEGG pathway P-value\n")
-
-        for group in genelistd:
-            pathway_ps = genematch.kegg_pathway_enrichment(genelistd[group])
-            #gops = genematch.go_enrichment(genelistd[group])
-            for ko in pathway_ps:
-                if pathway_ps[ko] < 0.05:
-                    out_h.write( "%-4s %-7s %.5f %s\n" % (group, goterm, pathway_ps[ko]) )
-        out_h.close()
-"""
