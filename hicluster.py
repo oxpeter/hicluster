@@ -918,8 +918,9 @@ def analyse_pca(matrix, column_header, row_header, filename):
         xs = q_scores[idx,0]
         ys = q_scores[idx,1]
         zs = q_scores[idx,2]
+        name = re.search('[FS][LP][0-9]+',names[idx]).group(0)
         ax.scatter(xs, ys, zs, c=colourlist[idx][0], marker='o')
-        ax.text(xs, ys, zs, names[idx])
+        ax.text(xs, ys, zs, name)
 
     ax.set_xlabel("PC1 (%.2f%%)" % (100.0 * (s[0]**2)/sumval))
     ax.set_ylabel("PC2 (%.2f%%)" % (100.0 * (s[1]**2)/sumval))
