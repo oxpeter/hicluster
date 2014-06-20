@@ -838,7 +838,7 @@ def clean_header(row_header):
 
 ################# Data analyis methods #############################################
 
-def analyse_pca(matrix, column_header, row_header, filename):
+def analyse_pca(matrix, column_header, row_header, filename, three_dim=True):
     """
     performs principal component analysis on the matrix and saves output as png.
     No additional normalisation occurs at this step - all normalisation has been done
@@ -911,43 +911,40 @@ def analyse_pca(matrix, column_header, row_header, filename):
     #q_scores = numpy.dot(numpy.sqrt(S), V.T)
     q_scores = numpy.dot(U, numpy.sqrt(S))
 
-
-    fig = plt.figure(1)
-    ax = fig.add_subplot(111, projection='3d')
-    for idx in range(len(colourlist)):
-        xs = q_scores[idx,0]
-        ys = q_scores[idx,1]
-        zs = q_scores[idx,2]
-        name = re.search('[FS][LP][0-9]+',names[idx]).group(0)
-        ax.scatter(xs, ys, zs, c=colourlist[idx][0], marker='o')
-        ax.text(xs, ys, zs, name)
-
-    ax.set_xlabel("PC1 (%.2f%%)" % (100.0 * (s[0]**2)/sumval))
-    ax.set_ylabel("PC2 (%.2f%%)" % (100.0 * (s[1]**2)/sumval))
-    ax.set_zlabel("PC3 (%.2f%%)" % (100.0 * (s[2]**2)/sumval))
-
-    plt.show()
-
-
-    # for two 2D graphs instead:
-    """
-    for idx in range(len(colourlist)):
+    if three_dim:   # plot a three dimensional graph:
         fig = plt.figure(1)
+        ax = fig.add_subplot(111, projection='3d')
+        for idx in range(len(colourlist)):
+            xs = q_scores[idx,0]
+            ys = q_scores[idx,1]
+            zs = q_scores[idx,2]
+            name = re.search('[FS][LP][0-9]+',names[idx]).group(0)
+            ax.scatter(xs, ys, zs, c=colourlist[idx][0], marker='o')
+            ax.text(xs, ys, zs, name)
 
-        sub1 = fig.add_subplot(2,1,1)
-        sub1.plot(q_scores[idx,0], q_scores[idx,1], colourlist[idx])
-        plt.xlabel( "PC1 (%.2f%%)" % (100.0 * (s[0]**2)/sumval) )
-        plt.ylabel( "PC2 (%.2f%%)" % (100.0 * (s[1]**2)/sumval) )
-        sub1.annotate( names[idx], xy=(q_scores[idx,0], q_scores[idx,1]),xytext=(-15,10), xycoords='data', textcoords='offset points' )
+        ax.set_xlabel("PC1 (%.2f%%)" % (100.0 * (s[0]**2)/sumval))
+        ax.set_ylabel("PC2 (%.2f%%)" % (100.0 * (s[1]**2)/sumval))
+        ax.set_zlabel("PC3 (%.2f%%)" % (100.0 * (s[2]**2)/sumval))
 
-        sub2 = fig.add_subplot(2,1,2)
-        sub2.plot(q_scores[idx,0], q_scores[idx,2], colourlist[idx])
-        plt.xlabel( "PC1 (%.2f%%)" % (100.0 * (s[0]**2)/sumval) )
-        plt.ylabel( "PC3 (%.2f%%)" % (100.0 * (s[2]**2)/sumval) )
-        sub2.annotate( names[idx], xy=(q_scores[idx,0],q_scores[idx,2]),xytext=(-15,10), xycoords='data', textcoords='offset points' )
+        plt.show()
+    else:   # plot two 2D graphs instead:
+        for idx in range(len(colourlist)):
+            fig = plt.figure(1)
 
-    plt.show()
-    """
+            sub1 = fig.add_subplot(2,1,1)
+            sub1.plot(q_scores[idx,0], q_scores[idx,1], colourlist[idx])
+            plt.xlabel( "PC1 (%.2f%%)" % (100.0 * (s[0]**2)/sumval) )
+            plt.ylabel( "PC2 (%.2f%%)" % (100.0 * (s[1]**2)/sumval) )
+            sub1.annotate( names[idx], xy=(q_scores[idx,0], q_scores[idx,1]),xytext=(-15,10), xycoords='data', textcoords='offset points' )
+
+            sub2 = fig.add_subplot(2,1,2)
+            sub2.plot(q_scores[idx,0], q_scores[idx,2], colourlist[idx])
+            plt.xlabel( "PC1 (%.2f%%)" % (100.0 * (s[0]**2)/sumval) )
+            plt.ylabel( "PC3 (%.2f%%)" % (100.0 * (s[2]**2)/sumval) )
+            sub2.annotate( names[idx], xy=(q_scores[idx,0],q_scores[idx,2]),xytext=(-15,10), xycoords='data', textcoords='offset points' )
+
+        plt.show()
+
 
     return matrix_reduced
 
