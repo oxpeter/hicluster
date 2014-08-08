@@ -992,7 +992,7 @@ def find_degs(x, column_header, row_header, group1="_F", group2="_S"):
 def degs_anova(x, column_header, row_header, group1="_F", group2="_S"):
     "finds DEGs using ANOVA and returns dictionary { Gene:P-value }"
 
-    matrix_reord, column_header, reord_row_header, limits = reorder_matrix(x, column_header, row_header, groups=["SL12", "SL24","SL48", "SL96","FP12", "FP24","FP48", "FP96", "FL", "SP"])     # groups=["SL12","SL24","SL48","SL96","FP12","FP24","FP48","FP96","SP12","FL12"])
+    matrix_reord, column_header, reord_row_header, limits = reorder_matrix(x, column_header, row_header, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96","FP06", "FP12", "FP24","FP48", "FP96", "FL"])     # groups=["SL12","SL24","SL48","SL96","FP12","FP24","FP48","FP96","SP12","FL12"])
     n = len(matrix_reord[0]); m = len(matrix_reord) # m  samples, n  genes
 
     # boundaries in matrix for each time point:
@@ -1002,7 +1002,7 @@ def degs_anova(x, column_header, row_header, group1="_F", group2="_S"):
 
     print "Performing ANOVA"
 
-    groups=["SL12", "SL24","SL48", "SL96","FP12", "FP24","FP48", "FP96"]
+    #groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96","FP06", "FP12", "FP24","FP48", "FP96", "FL"]
     A_dict = {}
     print "limits for anova:",limits
     for g in range(n):
@@ -1010,7 +1010,9 @@ def degs_anova(x, column_header, row_header, group1="_F", group2="_S"):
             matrix_reord[limits[0]:limits[1],g], matrix_reord[limits[1]:limits[2],g],\
             matrix_reord[limits[2]:limits[3],g], matrix_reord[limits[3]:limits[4],g],\
             matrix_reord[limits[4]:limits[5],g], matrix_reord[limits[5]:limits[6],g],\
-            matrix_reord[limits[6]:limits[7],g])
+            matrix_reord[limits[6]:limits[7],g], matrix_reord[limits[7]:limits[8],g],\
+            matrix_reord[limits[8]:limits[9],g], matrix_reord[limits[9]:limits[10],g],\
+            matrix_reord[limits[10]:limits[11],g])
         A_dict[column_header[g]] = p_val
 
     """
