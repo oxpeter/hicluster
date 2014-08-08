@@ -1066,6 +1066,7 @@ if __name__ == '__main__':
     parser.add_argument("-g", "--color_gradient", type=str, dest="color_gradient", default='red_white_blue', help="The colour scheme \n(red_white_blue, red_black_sky, red_black_blue, \nred_black_green, yellow_black_blue, seismic, \ngreen_white_purple, coolwarm)")
     parser.add_argument("-d", "--distribution", action='store_true', default=False, help="Shows FPKM distribution of each sample before and after normalisation")
     parser.add_argument("--display_off", action='store_true', help="Turn of displaying of clustering")
+    parser.add_argument("--display_reverse", action='store_true', help="Switch gene and sample axes on graphs")
     # filtering options
     parser.add_argument("-m", "--magnitude", type=float, dest="filter", default=2.5, help="Filters out genes with magnitude of range less than value given. Default = 1.13")
     parser.add_argument("-L", "--gene_list", type=str, dest="gene_list", default=None, help="Allows provision of a file containing a list of genes for inclusion in the clustering (ie, will filter out all genes NOT in the list provided). Otherwise, all genes will be included.")
@@ -1212,8 +1213,7 @@ if __name__ == '__main__':
         out_h.close()
 
     ## re-orient for publication purposes
-    you_want = False    # change to True to swap the columns and rows (primarily visual).
-    if you_want:
+    if args.display_reverse:
         matrix = numpy.transpose(matrix)
         tempcol = column_header
         column_header = row_header
