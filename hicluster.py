@@ -1048,6 +1048,7 @@ if __name__ == '__main__':
     parser.add_argument("-o", "--output_file", dest='filename', type=str, default=None, help="output file path and root name for results")
     parser.add_argument("-e", "--export_table", action='store_true', help="export transformed expression matrix")
     # analysis options
+    parser.add_argument("--no_clustering", action='store_true', help="Turn of clustering. Performs data transformation, filtering and analysis, then exits")
     parser.add_argument("-R", "--row_method", type=str, dest="row_method", default='complete', help="The clustering method for rows \n(single, average, complete, etc)")
     parser.add_argument("-C", "--column_method", type=str, dest="column_method", default='complete', help="The clustering method for columns \n(single, average, complete, weighted, ward, centroid, etc)")
     parser.add_argument("-r", "--row_metric", type=str, dest="row_metric", default='correlation', help="The distance metric for rows \n(euclidean, correlation, cosine, manhattan, etc)")
@@ -1219,7 +1220,7 @@ if __name__ == '__main__':
     ## perform hierarchical clustering
     if args.row_method == 'flat':
         args.row_method = None
-    if len(matrix)>0:
+    if len(matrix)>0 and args.no_clustering is False:
         try:
             new_column_header, groups = heatmap(matrix, row_header, column_header, args.row_method, args.column_method, args.row_metric, args.column_metric, args.color_gradient, filename, display=not(args.display_off), kegg=args.kegg, go=args.go_enrichment)
         except Exception:
