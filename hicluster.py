@@ -759,9 +759,9 @@ def average_matrix(x, column_header, row_header, groups=["SP", "SL06", "SL12", "
     v = numpy.ones((len(groups),n)) # create new array of size (y groups) and (n genes)
     counter = 0
     for g in range(n):
-        v[0,g] = average(matrix_reord[:limits[0],g])
+        v[0,g] = numpy.average(matrix_reord[:limits[0],g])
         for i in len(groups):
-            v[counter + 1,g] = average(matrix_reord[limits[counter]:limits[counter + 1],g])
+            v[counter + 1,g] = numpy.average(matrix_reord[limits[counter]:limits[counter + 1],g])
             counter += 1
     row_header = groups
     return v, column_header, row_header
