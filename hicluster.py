@@ -746,6 +746,26 @@ def reorder_matrix(x, column_header, row_header, groups=["_F","_S"]):
 
     return matrix_reord, column_header, row_header, limits
 
+def average_matrix(x, column_header, row_header, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96","FP06", "FP12", "FP24","FP48", "FP96", "FL"]):
+    """for each group in variable groups, calculates the average value in the matrix, and
+    creates a new matrix showing average values"""
+
+    matrix_reord, column_header, reord_row_header, limits = reorder_matrix(x, \
+        column_header, row_header, \
+        groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96",\
+                "FP06", "FP12", "FP24","FP48", "FP96", "FL"])
+    n = len(matrix_reord[0]); m = len(matrix_reord)   # m  samples, n  genes
+
+    v = numpy.ones((len(groups),n)) # create new array of size (y groups) and (n genes)
+    counter = 0
+    for g in range(n):
+        v[0,g] = average(matrix_reord[:limits[0],g])
+        for i in len(groups):
+            v[counter + 1,g] = average(matrix_reord[limits[counter]:limits[counter + 1],g])
+            counter += 1
+    row_header = groups
+    return v, column_header, row_header
+
 ################# Data construction or import methods ##############################
 
 def create_table(build_list):
@@ -989,7 +1009,7 @@ def find_degs(x, column_header, row_header, group1="_F", group2="_S"):
 
     return t_dict
 
-def degs_anova(x, column_header, row_header, group1="_F", group2="_S"):
+def degs_anova(x, column_header, row_header, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96","FP06", "FP12", "FP24","FP48", "FP96", "FL"]):
     "finds DEGs using ANOVA and returns dictionary { Gene:P-value }"
 
     matrix_reord, column_header, reord_row_header, limits = reorder_matrix(x, column_header, row_header, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96","FP06", "FP12", "FP24","FP48", "FP96", "FL"])     # groups=["SL12","SL24","SL48","SL96","FP12","FP24","FP48","FP96","SP12","FL12"])
@@ -1081,6 +1101,7 @@ if __name__ == '__main__':
     parser.add_argument("-u", "--centering_off", action='store_true', default=False, help="Turns off gene centering. Centering subtracts the mean from all values for a gene, giving mean = 0.")
     parser.add_argument("-T", "--transpose", action='store_true',  help="Transpose the matrix. Columns should represent genes, Rows samples")
     parser.add_argument("-X", "--sample_norm", action='store_true', help='Normalises samples instead of genes')
+    parser.add_argument("--show_average", action='store_true', help="Calculates the average value for each group and clusters based on this new matrix")
 
     args = parser.parse_args()
 
@@ -1140,6 +1161,20 @@ if __name__ == '__main__':
     if args.gene_list:
         print "Only keeping genes provided in", args.gene_list
         matrix, column_header, row_header = filter_genes(matrix, column_header, row_header, args.gene_list, col_num=0)
+
+    ## display average values for each group instead of individual values
+    if args.show_averages is True:
+        # turn off stats options (which are now irrelevant and will only cause errors:
+        args.filter_anova = False
+        args.anova = False
+        args.ttest_thresh = False
+        args.ttest = False
+
+        matrix, column_header, row_header = average_matrix(matrix, column_header,\
+            row_header, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96",\
+                                "FP06", "FP12", "FP24","FP48", "FP96", "FL"])
+
+
 
     ## filter by magnitude, minimum values and maximum values
     if not args.filter_off:
