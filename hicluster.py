@@ -266,11 +266,15 @@ def heatmap(x, row_header, column_header, row_method,
         out_h.write("Group KEGG pathway P-value\n")
 
         for group in genelistd:
-            pathway_ps = genematch.kegg_pathway_enrichment(genelistd[group])
+            pathway_ps, gene_kos = genematch.kegg_pathway_enrichment(genelistd[group], pthresh)
             #gops = genematch.go_enrichment(genelistd[group])
             for ko in pathway_ps:
                 if pathway_ps[ko] < 0.05: # this is a very weak threshold. Will need to do multiple test adjustment!
                     out_h.write( "%-4s %-7s %.5f %s\n" % (group, goterm, pathway_ps[ko]) )
+
+        even_newer_header = new_column_header
+        new_column_header[:] = [ appendkegg(geneid, gene_kos[geneid]) for geneid in new_column_header ]
+
         out_h.close()
 
 
@@ -760,7 +764,7 @@ def average_matrix(x, column_header, row_header, groups=["SP", "SL06", "SL12", "
 
     for g in range(n):
         v[0,g] = numpy.average(matrix_reord[:limits[0],g])
-        for i in range(len(groups)):
+        for i in range(len(groups)-1):
             v[i + 1,g] = numpy.average(matrix_reord[limits[i]:limits[i + 1],g])
 
     row_header = groups
@@ -1057,6 +1061,10 @@ def appendgo(geneid, goterm, go_obj):
         geneid = " ".join([geneid, goterm, go_obj.define_go(goterm)[0]])
     return  geneid
 
+def appendkegg(geneid, ko_name)
+    geneid = " ".join([geneid, ko_name])
+    return geneid
+
 ####################################################################################
 
 if __name__ == '__main__':
@@ -1080,7 +1088,7 @@ if __name__ == '__main__':
     parser.add_argument("-A", "--filter_anova", type=float, help="Perform ANOVA and filter genes to keep only those with P-value less than value given")
     parser.add_argument("-s", "--t_test", type=float,  help="Perform student's t-test on two groups, and report genes with P-value less than value specified")
     parser.add_argument("-S", "--filter_t", type=float, dest="ttest_thresh", help="Perform student's t-test and filter genes to keep only those with P-value less than value given")
-    parser.add_argument("-K", "--kegg", action='store_true', help="Perform KEGG pathway enrichment analysis on gene clusters")
+    parser.add_argument("-K", "--kegg", type=float, help="Perform KEGG pathway enrichment analysis on gene clusters using specified p-value")
     parser.add_argument("-E", "--go_enrichment", action='store_true', help="Perform GO term enrichment analysis on gene clusters")
     # viewing options
     parser.add_argument("-g", "--color_gradient", type=str, dest="color_gradient", default='red_white_blue', help="The colour scheme \n(red_white_blue, red_black_sky, red_black_blue, \nred_black_green, yellow_black_blue, seismic, \ngreen_white_purple, coolwarm)")
