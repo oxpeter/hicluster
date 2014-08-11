@@ -1101,7 +1101,7 @@ if __name__ == '__main__':
     parser.add_argument("-u", "--centering_off", action='store_true', default=False, help="Turns off gene centering. Centering subtracts the mean from all values for a gene, giving mean = 0.")
     parser.add_argument("-T", "--transpose", action='store_true',  help="Transpose the matrix. Columns should represent genes, Rows samples")
     parser.add_argument("-X", "--sample_norm", action='store_true', help='Normalises samples instead of genes')
-    parser.add_argument("--show_average", action='store_true', help="Calculates the average value for each group and clusters based on this new matrix")
+    parser.add_argument("--show_averages", action='store_true', help="Calculates the average value for each group and clusters based on this new matrix")
 
     args = parser.parse_args()
 
