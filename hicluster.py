@@ -1051,13 +1051,15 @@ def bar_charts(x, column_header, row_header, genelist, filename, groups=["SP", "
     n = len(matrix_reord[0]); m = len(matrix_reord)   # m  samples, n  genes
     pp = PdfPages(filename[0:-4] + '.bar_plots.pdf')
 
-    # get kegg pathways for each gene:
+    # get kegg pathways and NCBI values for each gene:
     ko_dict = genematch.cbir_to_pathway(genelist.keys())   # ko_dict = {gene:str(pathway)}
     go_monster = genematch.GO_maker()
+    ncbi_terms = genematch.cbir_ncbi(genelist)
 
     for gene in genelist:
         # get gene details for later use:
         ignore, kotermdic = genematch.cbir_to_kegg([gene],reversedic=True)
+
         try:
             koterm = kotermdic[gene]
         except KeyError:
@@ -1082,7 +1084,12 @@ def bar_charts(x, column_header, row_header, genelist, filename, groups=["SP", "
         # calculate tukey's post-hoc values and plot:
         tfig, taxes = plt.subplots()
 
-        posthoc = pairwise_tukeyhsd(matrix_reord[:,pos],gm)
+        try:
+            posthoc = pairwise_tukeyhsd(matrix_reord[:,pos],gm)
+        except Exception as inst:
+            print "Tukey calculation error - check that you have >1 value for each category."
+            print inst
+            continue
         phimg = posthoc.plot_simultaneous(comparison_name='SP', \
             ax=taxes, ylabel='Groups', xlabel='Normalised Expression', \
             labelorder = ["SP", "SL06", "SL12", "SL24","SL48", "SL96", \
@@ -1097,12 +1104,12 @@ def bar_charts(x, column_header, row_header, genelist, filename, groups=["SP", "
         labelist.pop(0)                         # removes first element (blank label)
         taxes.set_xticks(numpy.arange(12.0)*1)  # now create the right number of ticks
         taxes.set_xticklabels(labelist)         # reset with new names
-        taxes.set_title("Tukey's confidence values for gene expression of %s (%s):\n %s\n%s" % (str(gene), koterm, ko_dict[gene], godesc), fontsize=12 )
+        taxes.set_title("%s\n%s\n KEGG ortholog %s:\n%s\n%s" % (filename, ncbi_terms[gene], koterm, ko_dict[gene], godesc), fontsize=12 )
 
         plt.tight_layout()
         plt.savefig(pp, format='pdf')
         #plt.show(phimg)
-
+        plt.close()
         # print summary to file:
         tukeys_h = open(filename[:-4] + '.tukeys.txt','a')
         tukeys_h.write('Gene '  + str(gene) + ':\n')
