@@ -20,14 +20,16 @@ import argparse
 
 import numpy
 import matplotlib.pyplot as plt
+import matplotlib.image as mpimg
 import pylab
 import matplotlib as mpl
+from matplotlib.backends.backend_pdf import PdfPages
 from mpl_toolkits.mplot3d import Axes3D
 import scipy
 from scipy import stats
 import scipy.cluster.hierarchy as sch
 import scipy.spatial.distance as dist
-
+from statsmodels.stats.multicomp import pairwise_tukeyhsd
 
 import genematch
 
@@ -266,14 +268,14 @@ def heatmap(x, row_header, column_header, row_method,
         out_h.write("Group KEGG pathway P-value\n")
 
         for group in genelistd:
-            pathway_ps, gene_kos = genematch.kegg_pathway_enrichment(genelistd[group], pthresh)
+            pathway_ps, gene_kos = genematch.kegg_pathway_enrichment(genelistd[group], kegg)
             #gops = genematch.go_enrichment(genelistd[group])
             for ko in pathway_ps:
                 if pathway_ps[ko] < 0.05: # this is a very weak threshold. Will need to do multiple test adjustment!
                     out_h.write( "%-4s %-7s %.5f %s\n" % (group, goterm, pathway_ps[ko]) )
 
         even_newer_header = new_column_header
-        new_column_header[:] = [ appendkegg(geneid, gene_kos[geneid]) for geneid in new_column_header ]
+        new_column_header[:] = [ appendkegg(geneid, gene_kos) for geneid in new_column_header ]
 
         out_h.close()
 
@@ -579,23 +581,7 @@ def filter_genes(x, column_header, row_header, genefile, col_num=0):
     """takes a file and extracts the genes in the col_num specified column,
     then uses it to filter the matrix"""
 
-    # genefile can be given as a list of genes (say, from find_degs()... ), or as
-    # a path to a file containing a list of genes.
-    # The following builds a dictionary of genes from either input:
-    if type(genefile) is list:   # allows filtering from hicluster generated list of results.
-        genelist = {}.fromkeys(genefile,1)
-    elif type(genefile) is dict:
-        genelist = genefile # this of course will only work if the keys are the genes!
-    else:   # assuming a filepath...
-        genefile_h = open(genefile, 'rb')
-        genelist = {}   # will be a dict of names { 'Cbir01255':1, 'CbirVgq':1, ... }
-                        # used a dictionary to automatically remove any name duplications
-        filegen = [ line.split() for line in genefile_h ]
-
-        genefile_h.close()
-
-        for colset in filegen:
-            genelist[colset[col_num]]=1
+    genelist = make_a_list(genefile, col_num)
 
     # create position-based list for filtering from gene-names:
     keeplist = []  # will be a position based list [ 0, 4, 23, 34, ... ]
@@ -704,7 +690,7 @@ def filter_pretty(x, column_header, row_header, mag=2.5, group1="_F", group2="_S
 
     return y, column_header, row_header
 
-def reorder_matrix(x, column_header, row_header, groups=["_F","_S"]):
+def reorder_matrix(x, column_header, row_header, groups=["_F","_S"], verbose=False):
     "reorders rows such that they are sorted accordign to specified groups"
 
     n = len(x[0]); m = len(x) # m  samples, n  genes
@@ -735,15 +721,17 @@ def reorder_matrix(x, column_header, row_header, groups=["_F","_S"]):
     boundarystone = 0
     for pattern in groups:
         try:
-            print pattern, namelist[pattern]
+            if verbose:
+                print pattern, namelist[pattern]
             grouporder += poslist[pattern]
             boundarystone += len(poslist[pattern])
         except KeyError:
-            print pattern, "None found"
+            print pattern, "None found!"
         limits.append(boundarystone)
 
-    print "grouporder       :", grouporder
-    print "limits (boundary):", limits
+    if verbose:
+        print "grouporder       :", grouporder
+        print "limits (boundary):", limits
 
     matrix_reord = x[grouporder,:]
     row_header_new = [x for (y,x) in sorted(zip(grouporder,row_header))]
@@ -1013,7 +1001,7 @@ def find_degs(x, column_header, row_header, group1="_F", group2="_S"):
 
     return t_dict
 
-def degs_anova(x, column_header, row_header, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96","FP06", "FP12", "FP24","FP48", "FP96", "FL"]):
+def degs_anova(x, column_header, row_header, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96", "FL", "FP06", "FP12", "FP24","FP48", "FP96" ]):
     "finds DEGs using ANOVA and returns dictionary { Gene:P-value }"
 
     matrix_reord, column_header, reord_row_header, limits = reorder_matrix(x, column_header, row_header, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96","FP06", "FP12", "FP24","FP48", "FP96", "FL"])     # groups=["SL12","SL24","SL48","SL96","FP12","FP24","FP48","FP96","SP12","FL12"])
@@ -1054,15 +1042,131 @@ def degs_anova(x, column_header, row_header, groups=["SP", "SL06", "SL12", "SL24
 
     return A_dict
 
+def bar_charts(x, column_header, row_header, genelist, filename, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96", "FL", "FP06", "FP12", "FP24","FP48", "FP96" ]):
+    """creates bar plots of all genes in genelist, showing mean and error for each
+    timepoint category specified in groups"""
+
+    matrix_reord, column_header, reord_row_header, limits = reorder_matrix(x, \
+        column_header, row_header, groups)
+    n = len(matrix_reord[0]); m = len(matrix_reord)   # m  samples, n  genes
+    pp = PdfPages(filename[0:-4] + '.bar_plots.pdf')
+
+    # get kegg pathways for each gene:
+    ko_dict = genematch.cbir_to_pathway(genelist.keys())   # ko_dict = {gene:str(pathway)}
+    go_monster = genematch.GO_maker()
+
+    for gene in genelist:
+        # get gene details for later use:
+        ignore, kotermdic = genematch.cbir_to_kegg([gene],reversedic=True)
+        try:
+            koterm = kotermdic[gene]
+        except KeyError:
+            koterm = 'no KO'
+
+        genegos = go_monster.findem(gene)
+        godesc = "".join([ "%s %s %s\n" % (g, genegos[g][1], genegos[g][0]) for g in genegos ])
+
+        # calculate mean/SEM...
+        if gene in column_header:
+            pos = column_header.index(gene)
+        else:
+            continue
+        gm = [groups[0]] * (limits[0])    # matrix of group names for Tukey's post hoc
+        v = [numpy.average(matrix_reord[:limits[0],pos])]   # averages
+        se = [numpy.std(matrix_reord[:limits[0],pos])/numpy.sqrt(limits[0]+1)]   #SEM
+        for i in range(len(groups)-1):
+            gm += [groups[i+1]] * (limits[i+1]-limits[i])
+            v.append(numpy.average(matrix_reord[limits[i]:limits[i + 1],pos]))
+            se.append(numpy.std(matrix_reord[limits[i]:limits[i + 1],pos])/numpy.sqrt(limits[i+1]-limits[i]+1))
+
+        # calculate tukey's post-hoc values and plot:
+        tfig, taxes = plt.subplots()
+
+        posthoc = pairwise_tukeyhsd(matrix_reord[:,pos],gm)
+        phimg = posthoc.plot_simultaneous(comparison_name='SP', \
+            ax=taxes, ylabel='Groups', xlabel='Normalised Expression', \
+            labelorder = ["SP", "SL06", "SL12", "SL24","SL48", "SL96", \
+                          "FL", "FP06", "FP12", "FP24","FP48", "FP96" ])
+
+        # plot_simultaneous does not correctly report the y-axis labels. So to fix:
+        taxes.set_xticks(numpy.arange(13.0)*1)  # increase to gain all labels
+        plt.tight_layout()                      # resets axes
+        xlabels = taxes.get_xticklabels()       # gets values I need
+
+        labelist = [xtick.get_text() for xtick in xlabels]  # creates an ordered list of labels
+        labelist.pop(0)                         # removes first element (blank label)
+        taxes.set_xticks(numpy.arange(12.0)*1)  # now create the right number of ticks
+        taxes.set_xticklabels(labelist)         # reset with new names
+        taxes.set_title("Tukey's confidence values for gene expression of %s (%s):\n %s\n%s" % (str(gene), koterm, ko_dict[gene], godesc), fontsize=12 )
+
+        plt.tight_layout()
+        plt.savefig(pp, format='pdf')
+        #plt.show(phimg)
+
+        # print summary to file:
+        tukeys_h = open(filename[:-4] + '.tukeys.txt','a')
+        tukeys_h.write('Gene '  + str(gene) + ':\n')
+        tukeys_h.write(str(posthoc) + '\n\n')
+        tukeys_h.close()
+
+        """
+        # create box plot of expression values:
+        ind = numpy.arange(len(groups))    # x-coords for bars
+        width = 0.35                        # box width
+
+        fig, ax = plt.subplots()
+        rects1 = ax.bar(ind, v, width, color='r', yerr=se)
+
+        # add details:
+        ax.set_ylabel('Normalised Expression')
+        ax.set_title('Gene Expression for %s (%s):\n %s\n%s' % (str(gene), koterm, ko_dict[gene], godesc), fontsize=12 )
+        ax.set_xticks(ind+width)
+        ax.set_xticklabels(groups)
+
+        plt.tight_layout()
+        plt.savefig(pp, format='pdf')
+        plt.show()
+        """
+    pp.close()
+
+
 ################# Miscellaneous methods #############################################
+
+def make_a_list(geneobj, col_num=0):
+    """given a path, list, dictionary or string, convert into a list of genes.
+    col_num specifies the column from which to extract the gene list from."""
+
+    # genefile can be given as a list of genes (say, from find_degs()... ), or as
+    # a path to a file containing a list of genes.
+    # The following builds a dictionary of genes from either input:
+    if type(geneobj) is list:   # allows filtering from hicluster generated list of results.
+        genelist = {}.fromkeys(geneobj,1)
+    elif type(geneobj) is dict:
+        genelist = geneobj # this of course will only work if the keys are the genes!
+    elif type(geneobj) is str:   # assuming a filepath...
+        if re.search("/",geneobj) is None:
+            genelist = {}.fromkeys(geneobj.split(','),1)
+        else:   # is a file path
+            genefile_h = open(geneobj, 'rb')
+            genelist = {}   # will be a dict of names { 'Cbir01255':1, 'CbirVgq':1, ... }
+                            # used a dictionary to automatically remove any name duplications
+            filegen = [ line.split() for line in genefile_h ]
+
+            genefile_h.close()
+
+            for colset in filegen:
+                genelist[colset[col_num]]=1
+
+    return genelist
 
 def appendgo(geneid, goterm, go_obj):
     if goterm in go_obj.findem(geneid.split()[0]):
         geneid = " ".join([geneid, goterm, go_obj.define_go(goterm)[0]])
     return  geneid
 
-def appendkegg(geneid, ko_name)
-    geneid = " ".join([geneid, ko_name])
+def appendkegg(geneid, ko_dictionary):
+    if geneid in ko_dictionary:
+        geneid = " ".join([geneid, ko_name[geneid]])
     return geneid
 
 ####################################################################################
@@ -1095,6 +1199,7 @@ if __name__ == '__main__':
     parser.add_argument("-d", "--distribution", action='store_true', default=False, help="Shows FPKM distribution of each sample before and after normalisation")
     parser.add_argument("--display_off", action='store_true', help="Turn of displaying of clustering")
     parser.add_argument("--display_reverse", action='store_true', help="Switch gene and sample axes on graphs")
+    parser.add_argument("--bar_charts", type=str, help="List of genes for which you wish to create column graphs of average gene expression for.")
     # filtering options
     parser.add_argument("-m", "--magnitude", type=float, dest="filter", default=2.5, help="Filters out genes with magnitude of range less than value given. Default = 1.13")
     parser.add_argument("-L", "--gene_list", type=str, dest="gene_list", default=None, help="Allows provision of a file containing a list of genes for inclusion in the clustering (ie, will filter out all genes NOT in the list provided). Otherwise, all genes will be included.")
@@ -1222,7 +1327,7 @@ if __name__ == '__main__':
         out_h = open(filename[:-4] + ".ANOVA.list", 'w')
         for gene in a_dict:
             if a_dict[gene] <= args.filter_anova:
-                out_h.write( "%-12s P-value: %.4f\n" % (gene, a_dict[gene]) )
+                out_h.write( "%-12s P-value: %.9f\n" % (gene, a_dict[gene]) )
                 a_list.append(gene)
         out_h.close()
         print "Filtering matrix to %d genes with ANOVA P-value less than %.2f" % (len(a_list), args.filter_anova)
@@ -1232,7 +1337,7 @@ if __name__ == '__main__':
         out_h = open(filename[:-4] + ".ANOVA.list", 'w')
         for gene in a_dict:
             if a_dict[gene] <= args.anova:
-                out_h.write( "%-12s P-value: %.4f\n" % (gene, a_dict[gene]) )
+                out_h.write( "%-12s P-value: %.9f\n" % (gene, a_dict[gene]) )
         out_h.close()
 
     ## t-test analysis
@@ -1254,6 +1359,12 @@ if __name__ == '__main__':
             if t_dict[gene] <= args.t_test:
                 out_h.write( "%-12s P-value: %.4f\n" % (gene, t_dict[gene]) )
         out_h.close()
+
+    ## bar-chart construction:
+    if args.bar_charts:
+        genelist = make_a_list(args.bar_charts, col_num=0)
+        print "Constructing bar charts for " + " ".join(genelist)
+        bar_charts(matrix, column_header, row_header, genelist, filename)
 
     ## re-orient for publication purposes
     if args.display_reverse:
