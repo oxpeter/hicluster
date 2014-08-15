@@ -1370,7 +1370,7 @@ if __name__ == '__main__':
     ## bar-chart construction:
     if args.bar_charts:
         genelist = make_a_list(args.bar_charts, col_num=0)
-        print "Constructing bar charts for " + " ".join(genelist)
+        print "Constructing bar charts for %d genes: %s" % ( len(genelist), " ".join(genelist))
         bar_charts(matrix, column_header, row_header, genelist, filename)
 
     ## re-orient for publication purposes
