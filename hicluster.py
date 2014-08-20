@@ -1226,36 +1226,31 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
 
-
-
-    """ Running with cosine or other distance metrics can often produce negative Z scores
-        during clustering, so adjustments to the clustering may be required.
-
-    see: http://docs.scipy.org/doc/scipy/reference/cluster.hierarchy.html
-    see: http://docs.scipy.org/doc/scipy/reference/spatial.distance.htm
-    color_gradient = red_white_blue|red_black_sky|red_black_blue|red_black_green|yellow_black_blue|green_white_purple'
-    """
-
     ## create data table from cufflinks files:
     if args.build_list:
         data_table = create_table(args.build_list)
     else:
-        data_table = args.data_file
+        data_table = os.path.realpath(args.data_file)
 
-    ## create log file of arguments:
+    ## create output folder and log file of arguments:
     timestamp = time.strftime("%b%d_%H.%M")
     if not args.filename:
         root_dir = os.path.dirname(data_table)
-        filename = root_dir + "/hicluster." + timestamp + ".log"
+        newfolder = root_dir + "/hicluster." + timestamp
+        os.mkdir(newfolder)  # don't have to check if it exists, as timestamp is unique
+        filename = newfolder + "/hicluster." + timestamp + ".log"
     else:
-        filename = args.filename + '.' + timestamp + ".log"
+        newfolder = os.path.realpath(args.filename)
+        if os.path.exists(newfolder) is False:  # check to see if folder already exists...
+            os.mkdir(newfolder)
+        filename = newfolder + '/' + os.path.basename(args.filename) + '.' + timestamp + ".log"
 
     log_h = open(filename, 'w')
     log_h.write( "File created on %s\n" % (timestamp) )
-    for arg in str(args).split():
+    log_h.write( "Program called from %s\n\n" % (os.getcwd()) )
+    for arg in str(args)[10:-1].split():
         log_h.write( "%s\n" % (arg) )
     log_h.close()
-
 
 
     ## create matrix:
