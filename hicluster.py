@@ -1001,7 +1001,7 @@ def find_degs(x, column_header, row_header, group1="_F", group2="_S"):
 
     return t_dict
 
-def degs_anova(x, column_header, row_header, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96", "FL", "FP06", "FP12", "FP24","FP48", "FP96" ]):
+def degs_anova(x, column_header, row_header, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96", "FL", "FP06", "FP12", "FP24","FP48", "FP96" ], onegene=False):
     "finds DEGs using ANOVA and returns dictionary { Gene:P-value }"
 
     matrix_reord, column_header, reord_row_header, limits = reorder_matrix(x, column_header, row_header, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96","FP06", "FP12", "FP24","FP48", "FP96", "FL"])     # groups=["SL12","SL24","SL48","SL96","FP12","FP24","FP48","FP96","SP12","FL12"])
@@ -1010,35 +1010,33 @@ def degs_anova(x, column_header, row_header, groups=["SP", "SL06", "SL12", "SL24
     # boundaries in matrix for each time point:
     #SL12,SL24,SL48,SL96,FP12,FP24,FP48,FP96,SP12,FL12 = limits[0], limits[1], limits[2], limits[3], limits[4], limits[5], limits[6], limits[7], limits[8], limits[9]
     #for i in range(len(limits)):
-
-
-    print "Performing ANOVA"
-
-    #groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96","FP06", "FP12", "FP24","FP48", "FP96", "FL"]
     A_dict = {}
-    print "limits for anova:",limits
-    for g in range(n):
-        f_val, p_val = stats.f_oneway(matrix_reord[:limits[0],g],\
-            matrix_reord[limits[0]:limits[1],g], matrix_reord[limits[1]:limits[2],g],\
-            matrix_reord[limits[2]:limits[3],g], matrix_reord[limits[3]:limits[4],g],\
-            matrix_reord[limits[4]:limits[5],g], matrix_reord[limits[5]:limits[6],g],\
-            matrix_reord[limits[6]:limits[7],g], matrix_reord[limits[7]:limits[8],g],\
-            matrix_reord[limits[8]:limits[9],g], matrix_reord[limits[9]:limits[10],g],\
-            matrix_reord[limits[10]:limits[11],g])
-        A_dict[column_header[g]] = p_val
 
-    """
-    A_dict = {}
-    print "limits for anova:",limits
-    for g in range(n):
-        f_val, p_val = stats.f_oneway(matrix_reord[:limits[0],g],\
-            matrix_reord[limits[0]:limits[1],g], matrix_reord[limits[1]:limits[2],g],\
-            matrix_reord[limits[2]:limits[3],g], matrix_reord[limits[3]:limits[4],g],\
-            matrix_reord[limits[4]:limits[5],g], matrix_reord[limits[5]:limits[6],g],\
-            matrix_reord[limits[6]:limits[7],g], matrix_reord[limits[7]:limits[8],g],\
-            matrix_reord[limits[8]:limits[9],g])
-        A_dict[column_header[g]] = p_val
-    """
+    if onegene:
+        try:
+            g = column_header.index(onegene)
+            f_val, p_val = stats.f_oneway(matrix_reord[:limits[0],g],\
+                matrix_reord[limits[0]:limits[1],g], matrix_reord[limits[1]:limits[2],g],\
+                matrix_reord[limits[2]:limits[3],g], matrix_reord[limits[3]:limits[4],g],\
+                matrix_reord[limits[4]:limits[5],g], matrix_reord[limits[5]:limits[6],g],\
+                matrix_reord[limits[6]:limits[7],g], matrix_reord[limits[7]:limits[8],g],\
+                matrix_reord[limits[8]:limits[9],g], matrix_reord[limits[9]:limits[10],g],\
+                matrix_reord[limits[10]:limits[11],g])
+            A_dict[column_header[g]] = p_val
+        except:
+            print "Gene %s not found!" % (onegene)
+    else:
+        print "Performing ANOVA for %d genes" % (n)
+        #print "limits for anova:",limits
+        for g in range(n):
+            f_val, p_val = stats.f_oneway(matrix_reord[:limits[0],g],\
+                matrix_reord[limits[0]:limits[1],g], matrix_reord[limits[1]:limits[2],g],\
+                matrix_reord[limits[2]:limits[3],g], matrix_reord[limits[3]:limits[4],g],\
+                matrix_reord[limits[4]:limits[5],g], matrix_reord[limits[5]:limits[6],g],\
+                matrix_reord[limits[6]:limits[7],g], matrix_reord[limits[7]:limits[8],g],\
+                matrix_reord[limits[8]:limits[9],g], matrix_reord[limits[9]:limits[10],g],\
+                matrix_reord[limits[10]:limits[11],g])
+            A_dict[column_header[g]] = p_val
 
     return A_dict
 
@@ -1059,6 +1057,8 @@ def bar_charts(x, column_header, row_header, genelist, filename, groups=["SP", "
     for gene in genelist:
         # get gene details for later use:
         ignore, kotermdic = genematch.cbir_to_kegg([gene],reversedic=True)
+
+        anova = degs_anova(x, column_header, row_header, onegene=gene)
 
         try:
             koterm = kotermdic[gene]
@@ -1104,7 +1104,7 @@ def bar_charts(x, column_header, row_header, genelist, filename, groups=["SP", "
         labelist.pop(0)                         # removes first element (blank label)
         taxes.set_xticks(numpy.arange(12.0)*1)  # now create the right number of ticks
         taxes.set_xticklabels(labelist)         # reset with new names
-        taxes.set_title("%s\n%s\n KEGG ortholog %s:\n%s\n%s" % (filename, ncbi_terms[gene], koterm, ko_dict[gene], godesc), fontsize=12 )
+        taxes.set_title("%s %s(ANOVA P-value %.8f)\n%s\n KEGG ortholog %s:\n%s\n%s" % (os.path.basename(filename)[:-4], gene, anova[gene], ncbi_terms[gene], koterm, ko_dict[gene], godesc), fontsize=12 )
 
         plt.tight_layout()
         plt.savefig(pp, format='pdf')
