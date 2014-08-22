@@ -53,6 +53,16 @@ import genematch
 #OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 #SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+class Datamatrix(object):
+    def __init__(self, matrix, gene_header, sample_header, gene_metric, sample_metric, \
+                color_gradient, filename):
+        self.data_matrix    = matrix
+        self.gene_header    = gene_header
+        self.sample_header  = sample_header
+        self.gene_metric    = gene_metric
+        self.sample_metric  = sample_metric
+
+
 def heatmap(x, row_header, column_header, row_method,
             column_method, row_metric, column_metric,
             color_gradient, filename, display=True,
