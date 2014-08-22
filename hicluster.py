@@ -169,21 +169,36 @@ class Datamatrix(object):
     def invert_matrix(self):
         self.data_matrix = numpy.transpose(self.data_matrix)
         tempcol = self.column_header
-        self.column_header = row_header
-        self.row_header = tempcol
+        temprow = self.row_head
+        tempcolmeth = self.column_method
+        temprowmeth = self.row_method
+        tempcolmet = self.column_metric
+        temprowmet = self.row_metric
+
+        self.column_header  = temprow
+        self.row_head       = tempcol
+        self.column_method  = temprowmeth
+        self.row_method     = tempcolmeth
+        self.column_metric  = temprowmet
+        self.row_metric     = tempcolmet
 
         if self._genes_as_rows:
             self._genes_as_rows = False
         else:
             self._genes_as_rows = True
 
+        self.refresh_headers()
+
     def set_genes_to_rows(self):
         if self._genes_as_rows is False:
             self.invert_matrix()
 
-    ## Create Custom Color Gradients ########################################
-    #http://matplotlib.sourceforge.net/examples/plt_examples/custom_cmap.html
+    def set_genes_to_columns(self):
+        if self._genes_as_rows:
+            self.invert_matrix()
 
+    ## Create Custom Color Gradients
+    #http://matplotlib.sourceforge.net/examples/plt_examples/custom_cmap.html
     def _RedBlackSkyBlue(self):
         cdict = {'red':   ((0.0, 0.0, 0.0),
                            (0.5, 0.0, 0.1),
@@ -270,13 +285,10 @@ class Datamatrix(object):
         return self.samplesize, self.genenumber
 
 
+def heatmap(cluster, display=True,kegg=False, go=False):
 
-def heatmap(cluster, x, row_header, column_header, row_method,
-            column_method, row_metric, column_metric,
-            color_gradient, filename, display=True,
-            kegg=False, go=False):
-
-    print "\nPerforming hiearchical clustering using %s for columns and %s for rows" % (column_metric,row_metric)
+    print "\nPerforming hiearchical clustering using %s for columns and %s for rows" % \
+            (cluster.column_metric, cluster.row_metric)
 
     """
     This below code is based in large part on the protype methods:
@@ -303,7 +315,7 @@ def heatmap(cluster, x, row_header, column_header, row_method,
 
     ## calculate positions for all elements
     # ax1, placement of dendrogram 1, on the left of the heatmap
-    #if row_method != None: w1 =
+    #if cluster.row_method != None: w1 =
     [ax1_x, ax1_y, ax1_w, ax1_h] = [0.05,0.42,0.2,0.4] # [0.05,0.22,0.2,0.6]   ### The second value controls the position of the matrix relative to the bottom of the view
     width_between_ax1_axr = 0.004
     height_between_ax1_axc = 0.004 ### distance between the top color bar axis and the matrix
@@ -336,12 +348,12 @@ def heatmap(cluster, x, row_header, column_header, row_method,
     [axcb_x, axcb_y, axcb_w, axcb_h] = [0.07,0.88,0.18,0.09]
 
     # Compute and plot top dendrogram
-    if column_method != None:
+    if cluster.column_method != None:
         start_time = time.time()
         d2 = dist.pdist(cluster.data_matrix.T)
         D2 = dist.squareform(d2)
         ax2 = fig.add_axes([ax2_x, ax2_y, ax2_w, ax2_h], frame_on=True)
-        Y2 = sch.linkage(D2, method=column_method, metric=column_metric) ### array-clustering metric - 'average', 'single', 'centroid', 'complete'
+        Y2 = sch.linkage(D2, method=cluster.column_method, metric=cluster.column_metric) ### array-clustering metric - 'average', 'single', 'centroid', 'complete'
         # distances in linkage array can occasionally be negative due to floating point
         # calculation error. Therefore, clip third column inarray to remove negative
         # values (by making them zero):
@@ -354,15 +366,15 @@ def heatmap(cluster, x, row_header, column_header, row_method,
         time_diff = str(round(time.time()-start_time,1))
         print 'Column clustering completed in %s seconds' % time_diff
     else:
-        ind2 = ['NA']*len(column_header) ### Used for exporting the flat cluster data
+        ind2 = ['NA']*len(cluster.column_header) ### Used for exporting the flat cluster data
 
     # Compute and plot left dendrogram.
-    if row_method != None:
+    if cluster.row_method != None:
         start_time = time.time()
         d1 = dist.pdist(cluster.data_matrix)
         D1 = dist.squareform(d1)  # full matrix
         ax1 = fig.add_axes([ax1_x, ax1_y, ax1_w, ax1_h], frame_on=True) # frame_on may be False
-        Y1 = sch.linkage(D1, method=row_method, metric=row_metric) ### gene-clustering metric - 'average', 'single', 'centroid', 'complete'
+        Y1 = sch.linkage(D1, method=cluster.row_method, metric=cluster.row_metric) ### gene-clustering metric - 'average', 'single', 'centroid', 'complete'
         Z1 = sch.dendrogram(Y1, orientation='right')
         ind1 = sch.fcluster(Y1,0.7*max(Y1[:,2]),'distance') ### This is the default behavior of dendrogram
         ax1.set_xticks([]) ### Hides ticks
@@ -370,19 +382,19 @@ def heatmap(cluster, x, row_header, column_header, row_method,
         time_diff = str(round(time.time()-start_time,1))
         print 'Row clustering completed in %s seconds' % time_diff
     else:
-        ind1 = ['NA']*len(row_header) ### Used for exporting the flat cluster data
+        ind1 = ['NA']*len(cluster.row_header) ### Used for exporting the flat cluster data
 
     # Plot distance matrix.
     axm = fig.add_axes([axm_x, axm_y, axm_w, axm_h])  # axes for the data matrix
     xt = cluster.data_matrix
-    if column_method != None:
+    if cluster.column_method != None:
 
         ## create a list containing the order of the rearranged matrix:
         idx2 = Z2['leaves'] ### apply the clustering for the array-dendrograms to the actual matrix data
         xt = xt[:,idx2]
         ind2 = [ ind2[i] for i in idx2] # similarly organises the cluster assignment list
         #ind2 = ind2[:,idx2] ### reorder the flat cluster to match the order of the leaves the dendrogram
-    if row_method != None:
+    if cluster.row_method != None:
         idx1 = Z1['leaves'] ### apply the clustering for the gene-dendrograms to the actual matrix data
         xt = xt[idx1,:]   # xt is transformed x
         ind1 = [ ind1[i] for i in idx1 ]
@@ -396,21 +408,21 @@ def heatmap(cluster, x, row_header, column_header, row_method,
     new_row_header=[]
     new_column_header=[]
     for i in range(cluster.data_matrix.shape[0]):
-        if row_method != None:
-            if len(row_header)<100: ### Don't visualize gene associations when more than 100 rows
-                axm.text(cluster.data_matrix.shape[1]-0.5, i, '  ' + row_header[idx1[i]])
+        if cluster.row_method != None:
+            if len(cluster.row_header)<100: ### Don't visualize gene associations when more than 100 rows
+                axm.text(cluster.data_matrix.shape[1]-0.5, i, '  ' + cluster.row_header[idx1[i]])
             new_row_header.append(row_header[idx1[i]])
         else:
-            if len(row_header)<100: ### Don't visualize gene associations when more than 100 rows
-                axm.text(cluster.data_matrix.shape[1]-0.5, i, '  ' + row_header[i]) ### When not clustering rows
-            new_row_header.append(row_header[i])
+            if len(cluster.row_header)<100: ### Don't visualize gene associations when more than 100 rows
+                axm.text(cluster.data_matrix.shape[1]-0.5, i, '  ' + cluster.row_header[i]) ### When not clustering rows
+            new_row_header.append(cluster.row_header[i])
     for i in range(cluster.data_matrix.shape[1]):
-        if column_method != None:
-            #axm.text(i, -0.9, ' ' + column_header[idx2[i]], rotation=270, verticalalignment="top") #  rotation could also be degrees
-            new_column_header.append(column_header[idx2[i]])
+        if cluster.column_method != None:
+            #axm.text(i, -0.9, ' ' + cluster.column_header[idx2[i]], rotation=270, verticalalignment="top") #  rotation could also be degrees
+            new_column_header.append(cluster.column_header[idx2[i]])
         else: ### When not clustering columns
-            #axm.text(i, -0.9, ' ' + column_header[i], rotation=270, verticalalignment="top")
-            new_column_header.append(column_header[i])
+            #axm.text(i, -0.9, ' ' + cluster.column_header[i], rotation=270, verticalalignment="top")
+            new_column_header.append(cluster.column_header[i])
 
 
 
@@ -427,7 +439,7 @@ def heatmap(cluster, x, row_header, column_header, row_method,
                 genelistd[group] = [geneid]
 
         print "Performing GO enrichment analysis for %d groups" % (len(genelistd))
-        out_h = open(filename[:-4] + ".GO_enrichment.list", 'w')
+        out_h = open(cluster.filename[:-4] + ".GO_enrichment.list", 'w')
 
         out_h.write("Group GOterm P-value\n")
         go_monster = genematch.GO_maker()
@@ -458,7 +470,7 @@ def heatmap(cluster, x, row_header, column_header, row_method,
                 genelistd[group] = [geneid]
 
         print "Performing KEGG pathway enrichment analysis for %d groups" % (len(genelistd))
-        out_h = open(filename[:-4] + ".KEGG_enrichment.list", 'w')
+        out_h = open(cluster.filename[:-4] + ".KEGG_enrichment.list", 'w')
 
         out_h.write("Group KEGG pathway P-value\n")
 
@@ -477,14 +489,14 @@ def heatmap(cluster, x, row_header, column_header, row_method,
 
 
     # Add text for column data:
-    for i in range(x.shape[1]):
-        if len(column_header)<200:
+    for i in range(cluster.data_matrix.shape[1]):
+        if len(cluster.column_header)<200:
             axm.text(i - 0.3, -0.9, ' ' + new_column_header[i], rotation=270, verticalalignment="top")
 
 
     # Plot colside colors
     # axc --> axes for column side colorbar
-    if column_method != None:
+    if cluster.column_method != None:
         axc = fig.add_axes([axc_x, axc_y, axc_w, axc_h])  # axes for column side colorbar
         cmap_c = mpl.colors.ListedColormap(['r', 'g', 'b', 'y', 'w', 'k', 'm'])
         dc = numpy.array(ind2, dtype=int)
@@ -495,7 +507,7 @@ def heatmap(cluster, x, row_header, column_header, row_method,
 
     # Plot rowside colors
     # axr --> axes for row side colorbar
-    if row_method != None:
+    if cluster.row_method != None:
         axr = fig.add_axes([axr_x, axr_y, axr_w, axr_h])  # axes for column side colorbar
         dr = numpy.array(ind1, dtype=int)
         dr.shape = (len(ind1),1)
@@ -511,26 +523,26 @@ def heatmap(cluster, x, row_header, column_header, row_method,
     axcb.set_title("colorkey")
 
 
-    pdfname = filename[:-4] + '.pdf'
+    pdfname = cluster.filename[:-4] + '.pdf'
     cb.set_label("Differential Expression (log2 fold)")
     ind1 = ind1[::-1] # reverse order of flat cluster leaves to match samples in txt file.
     exportFlatClusterData(pdfname, new_row_header,new_column_header,xt,ind1,ind2)
 
     ### Render the graphic
-    if len(row_header)>50 or len(column_header)>50 or max(len(term) for term in new_column_header) > 80:
+    if len(cluster.row_header)>50 or len(cluster.column_header)>50 or max(len(term) for term in new_column_header) > 80:
         plt.rcParams['font.size'] = 7 #5
     else:
         plt.rcParams['font.size'] = 10 #8
 
     plt.savefig(pdfname)
     print 'Exporting:',pdfname
-    filename = filename[:-4]+'.png'
+    filename = cluster.filename[:-4]+'.png'
     plt.savefig(pdfname, dpi=200) #,dpi=100
     if display:
         plt.show()
 
-
-    return new_column_header, ind2  # this is to allow group-specific KEGG enrichment analysis
+    # returns values to allow group-specific KEGG enrichment analysis
+    return new_column_header, ind2
 
 
 ################# Export the flat cluster data #####################################
