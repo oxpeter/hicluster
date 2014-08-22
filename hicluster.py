@@ -53,7 +53,7 @@ import genematch
 #OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 #SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-class Datamatrix(object):
+class Cluster(object):
     def __init__(self, filename, firstrow=True, genes_as_rows=False, \
                 gene_metric='correlation', sample_metric='correlation', \
                 gene_method='complete', sample_method='complete', \
@@ -69,6 +69,7 @@ class Datamatrix(object):
 
         self._genes_as_rows = genes_as_rows
         self.refresh_headers()
+        self.clean_header()
 
         self.samplesize, self.genenumber = self.check_size()
 
@@ -283,6 +284,271 @@ class Datamatrix(object):
         assert len(self.gene_header) == self.genenumber
         assert len(self.sample_header) == self.samplesize
         return self.samplesize, self.genenumber
+
+    ################# Matrix manipulation methods ######################################
+
+    def normaliseData(self, center=True, norm_var=True, log_t=True, sample_norm=False):
+        "center, normalize and/or log transform the array x"
+
+        print "\n\nInitial minimum value in matrix: ", self.data_matrix.min()
+        if log_t:
+            for g in range(self.genenumber):
+                for i in range(self.samplesize):
+                    self.data_matrix[:,g][i] = numpy.log2(self.data_matrix[:,g][i] + 1)
+
+        print "log2(FPKM + 1) transformed data. New minimum value in matrix: ", self.data_matrix.min()
+
+        meanlist = []   # to store for later re-adjustment of matrix
+        if center and sample_norm:
+            print "centering data for each sample to have mean 0"
+            for s in range(self.samplesize):
+                ave_g = numpy.mean(self.data_matrix[s])
+                for i in range(self.genenumber):
+                    self.data_matrix[s,i] = self.data_matrix[s,i] - ave_g
+                    meanlist.append(ave_g)
+        elif center:
+            print "Centering data for each gene to have mean 0"
+            for g in range(self.genenumber):
+                # center the data so it has mean = 0 for each gene:
+                ave_g = numpy.mean(self.data_matrix[:,g])
+                for i in range(self.samplesize):
+                    self.data_matrix[:,g][i] = self.data_matrix[:,g][i] - ave_g
+                    meanlist.append(ave_g)
+        print "new minimum value in matrix: ", self.data_matrix.min()
+
+        if norm_var and sample_norm:
+            print "Normalising data so each sample has standard deviation of 1"
+            for s in range(self.samplesize):
+                #sum_sq = sum([ a ** 2 for a in (x[m])])
+                stdev = numpy.std(self.data_matrix[s])
+                for i in range(self.genenumber):
+                    self.data_matrix[s,i] = self.data_matrix[s,i] / stdev
+        elif norm_var:
+            print "Normalising data so each gene has standard deviation of 1"
+            for g in range(self.genenumber):
+                stdev = numpy.std(self.data_matrix[:,g])
+                for i in range(self.samplesize):
+                    self.data_matrix[:,g][i] = self.data_matrix[:,g][i] / stdev # dividing by variance gives identical result
+
+        print "new minimum value in matrix: ", self.data_matrix.min()
+
+        return meanlist # it is not nessary to return x, since it is modifying x
+
+    def filter_genes(self, genelist):
+        """takes a file and extracts the genes in the col_num specified column,
+        then uses it to filter the matrix"""
+
+        # create position-based list for filtering from gene-names:
+        keeplist = []  # will be a position based list [ 0, 4, 23, 34, ... ]
+        for gene in genelist:
+            try:
+                keeplist.append(self.gene_header.index(gene))
+            except:     # some columns will be headers that would cause errors.
+                pass
+
+        hitlist = range(len(self.gene_header))
+        for posn in keeplist: # will be the inverse of keeplist
+            hitlist.remove(posn)
+
+        ## filter matrix with genelist:
+        filter_matrix(hitlist)
+
+    def filterData(self, mag=1, min_thresh=-1000000, max_thresh=1000000):
+        """filters out any gene for which the magnitude of expression is less than mag,
+        or for which the maximum value of all samples is less than min_thresh,
+        or for which the maximum value is greater than max_thresh"""
+
+        # will only work if genes are columns in matrix
+        revert = False
+        if self.genes_as_rows:
+            self.invert_matrix()
+            revert = True
+
+        print "Filtering %d genes and %d samples:\nMin fold change: %.1f Min expression level (at least one sample): %d Max expression level: %d" % (self.genenumber, self.samplesize, mag, min_thresh, max_thresh)
+
+        hitlist = []
+        for g in range(self.genenumber):
+            fpkm_max = max(self.data_matrix[:,g])
+            fpkm_min = min(self.data_matrix[:,g])
+            size = numpy.absolute(fpkm_max/(fpkm_min + 0.00001))
+            #rms  = numpy.sqrt( sum(a**2 for a in x[:,g])/m )
+            if size < mag or fpkm_max < min_thresh or fpkm_max > max_thresh :
+                hitlist.append(g)
+
+        self.filter_matrix(hitlist)
+
+        # if matrix was inverted for gene removal, restore to its previous orientation:
+        if revert:
+            self.invert_matrix()
+
+    def filter_matrix(self, hitlist):
+        """given the positional list hitlist, will edit matrix and column headers
+        by removing those positions"""
+        # will only work if genes are columns in matrix
+        revert = False
+        if self.genes_as_rows:
+            self.invert_matrix()
+            revert = True
+
+        # create new matrix and column_header without the columns in the hitlist:
+        y = numpy.delete(self.data_matrix, hitlist, 1)
+        print "%d genes removed:" % len(hitlist)
+        for gene in hitlist[::-1]:
+            self.gene_header.pop(gene)
+
+        self.data_matrix = y
+        self.samplesize, self.genenumber = self.check_size()
+        print "there are now %d genes and %d samples" % (self.genenumber, self.samplesize)
+
+        self.column_header = self.gene_header
+
+        # if matrix was inverted for gene removal, restore to its previous orientation:
+        if revert:
+            self.invert_matrix()
+
+    def reorder_matrix(self, groups=["_FL","_SP"], verbose=False):
+        "reorders rows such that they are sorted accordign to specified groups"
+
+        # will only work if genes are columns in matrix
+        revert = False
+        if self.genes_as_rows:
+            self.invert_matrix()
+            revert = True
+
+
+        if verbose:
+            print "Sorting data into %d groups" % (len(groups))
+
+        # split matrix based on the specified groups;
+        namelist = {'unassigned':[]}
+        poslist = {'unassigned':[]}
+
+
+        for s in self.sample_header:
+            for pattern in groups:
+                if pattern not in namelist:
+                    namelist[pattern] = []
+                    poslist[pattern] = []
+                # assign each sample to a group:
+                if re.search(pattern,s) is not None:
+                    namelist[pattern].append(s)
+                    poslist[pattern].append(self.sample_header.index(s))
+                    break
+            else:       # group not found in any sample list
+                print "#" * 30
+                print "%s could not be matched to any group ==> %r" % (s, groups)
+                print "#" * 30
+                namelist['unassigned'].append(s)
+                poslist['unassigned'].append(self.sample_header.index(s))
+        grouporder = []
+        limits = []
+        boundarystone = 0
+        for pattern in groups:
+            try:
+                if verbose:
+                    print pattern, namelist[pattern]
+                grouporder += poslist[pattern]
+                boundarystone += len(poslist[pattern])
+            except KeyError:
+                print pattern, "None found!"
+            limits.append(boundarystone)
+        # for any unassigned samples:
+        if len(poslist['unassigned']) > 0:
+            try:
+                if verbose:
+                    print pattern, namelist['unassigned']
+                grouporder += poslist['unassigned']
+                boundarystone += len(poslist['unassigned'])
+            except KeyError:
+                pass
+            limits.append(boundarystone)
+
+
+        if verbose:
+            print "grouporder       :", grouporder
+            print "limits (boundary):", limits
+
+        matrix_reord = self.data_matrix[grouporder,:]
+        row_header_new = [x for (y,x) in sorted(zip(grouporder,self.sample_header))]
+
+        self.data_matrix = matrix_reord
+        self.row_header = row_header_new
+        self.sample_header = row_header_new
+
+        # if matrix was inverted for gene removal, restore to its previous orientation:
+        if revert:
+            self.invert_matrix()
+
+        return limits
+
+    def average_matrix(self, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96","FP06", "FP12", "FP24","FP48", "FP96", "FL"]):
+        """for each group in variable groups, calculates the average value in the matrix, and
+        creates a new matrix showing average values"""
+
+        # will only work if genes are columns in matrix
+        revert = False
+        if self.genes_as_rows:
+            self.invert_matrix()
+            revert = True
+
+        limits = self.reorder_matrix(groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96",\
+                    "FP06", "FP12", "FP24","FP48", "FP96", "FL"])
+
+        v = numpy.ones((len(groups),self.genenumber)) # create new array of size (y groups) and (n genes)
+
+        for g in range(self.genenumber):
+            v[0,g] = numpy.average(self.data_matrix[:limits[0],g])
+            for i in range(len(groups)-1):
+                v[i + 1,g] = numpy.average(self.data_matrix[limits[i]:limits[i + 1],g])
+
+        self.row_header = groups
+        self.column_header = self.gene_header
+        self.data_matrix = v
+        self.refresh_headers()
+
+        # if matrix was inverted for gene removal, restore to its previous orientation:
+        if revert:
+            self.invert_matrix()
+
+    def export(self, filename, new_column_header, new_row_header, xt):
+        "Saves datatable and columns to a text file"
+        nfilename = self.filename[:-4] + '.data.tbl'
+
+        export_text = open(nfilename,'w')
+        column_header = '\t'.join(['gene']+self.column_header)+'\n' ### format column-names for export
+        export_text.write(column_header)
+
+        ### The clusters, dendrogram and flat clusters are drawn bottom-up, so we need to reverse the order to match
+        new_row_header = self.row_header[::-1]
+        xt = self.data_matrix[::-1]
+
+        ### Export each row in the clustered data matrix xt
+        i = 0
+        for row in xt:
+            export_text.write('\t'.join([new_row_header[i]]+map(str, row))+'\n')
+            i += 1
+        export_text.close()
+
+        ### Transpose text file for easier reading!
+        oldfile_h = open(nfilename, 'rb')
+
+        elements = [ line.split() for line in oldfile_h ]
+        oldfile_h.close()
+
+        biglist = []
+        for splitline in elements:
+            biglist.append(splitline)
+        newarray = numpy.array(biglist)
+        t_array = newarray.transpose()
+
+        newfile_h = open(self.filename[:-4] + '.data.trans.tbl' , 'w')
+        for row in t_array:
+            newfile_h.write("\t".join(row) + "\n")
+        newfile_h.close()
+
+
+####################################################################################
+####################################################################################
 
 
 def heatmap(cluster, display=True,kegg=False, go=False):
@@ -547,46 +813,7 @@ def heatmap(cluster, display=True,kegg=False, go=False):
 
 ################# Export the flat cluster data #####################################
 
-def export_expression_table(filename, new_column_header, new_row_header, xt):
-    nfilename = filename[:-4] + '.data.tbl'
-    "for when you need to create the data table but it's too big to analyse..."
-    export_text = open(nfilename,'w')
-    column_header = string.join(['gene']+new_column_header,'\t')+'\n' ### format column-names for export
-    export_text.write(column_header)
 
-    ### The clusters, dendrogram and flat clusters are drawn bottom-up, so we need to reverse the order to match
-    new_row_header = new_row_header[::-1]
-    xt = xt[::-1]
-
-    ### Export each row in the clustered data matrix xt
-    i=0
-    for row in xt:
-        export_text.write(string.join([new_row_header[i]]+map(str, row),'\t')+'\n')
-        i+=1
-    export_text.close()
-
-    ### Transpose text file for easier reading!
-    oldfile_h = open(nfilename, 'rb')
-
-    elements = [ line.split() for line in oldfile_h ]
-    oldfile_h.close()
-
-    biglist = []
-    for splitline in elements:
-        #print len(splitline)
-        #print splitline
-        biglist.append(splitline)
-    newarray = numpy.array(biglist)
-    #print numpy.shape(newarray)
-    t_array = newarray.transpose()
-    #print numpy.shape(t_array)
-    #print newarray[:,0]
-
-    newfile_h = open(nfilename[:-4] + ".transp.tbl" , 'w')
-    for row in t_array:
-        #print "The row is currently: %r" % row
-        newfile_h.write("\t".join(row) + "\n")
-    newfile_h.close()
 
 def exportFlatClusterData(filename, new_row_header,new_column_header,xt,ind1,ind2):
     """ Export the clustered results as a text file, only indicating the flat-clusters rather than the tree """
@@ -648,242 +875,6 @@ def exportFlatClusterData(filename, new_row_header,new_column_header,xt,ind1,ind
         i+=1
     export_cdt.close()
 
-
-
-################# Matrix manipulation methods ######################################
-
-def normaliseData(x, center=True, norm_var=True, log_t=True, sample_norm=False):
-    "center, normalize and/or log transform the array x"
-    n = len(x[0]); m = len(x) # m = 6 samples, n = 6000 genes
-
-    print "\n\nInitial minimum value in matrix: ", x.min()
-    if log_t:
-        for g in range(n):
-            for i in range(m):
-                x[:,g][i] = numpy.log2(x[:,g][i] + 1)
-
-    print "log2(FPKM + 1) transformed data. New minimum value in matrix: ", x.min()
-
-
-    meanlist = []   # to store for later re-adjustment of matrix
-    if center and sample_norm:
-        print "centering data for each sample to have mean 0"
-        for s in range(m):
-            ave_g = numpy.mean(x[s])
-            for i in range(n):
-                x[s,i] = x[s,i] - ave_g
-                meanlist.append(ave_g)
-    elif center:
-        print "Centering data for each gene to have mean 0"
-        for g in range(n):
-            # center the data so it has mean = 0 for each gene:
-            ave_g = numpy.mean(x[:,g])
-            for i in range(m):
-                x[:,g][i] = x[:,g][i] - ave_g
-                meanlist.append(ave_g)
-    print "new minimum value in matrix: ", x.min()
-
-    if norm_var and sample_norm:
-        print "Normalising data so each sample has standard deviation of 1"
-        for s in range(m):
-            #sum_sq = sum([ a ** 2 for a in (x[m])])
-            stdev = numpy.std(x[s])
-            for i in range(n):
-                x[s,i] = x[s,i] / stdev
-    elif norm_var:
-        print "Normalising data so each gene has standard deviation of 1"
-        for g in range(n):
-            #sum_sq = sum([ a ** 2 for a in (x[:,g])])
-            stdev = numpy.std(x[:,g])
-            #print "1) mean: %.4f st.dev: %.4f" % ( numpy.mean(x[:,g]), stdev )
-            for i in range(m):
-                x[:,g][i] = x[:,g][i] / stdev # dividing by variance gives identical result
-            #print "2) mean: %-7.4f st.dev: %-7.4f min: %-7.4f max: %-7.4f" % ( numpy.mean(x[:,g]), numpy.std(x[:,g]), numpy.min(x[:,g]), numpy.max(x[:,g]) )
-    print "new minimum value in matrix: ", x.min()
-
-    return meanlist # it is not nessary to return x, since it is modifying x
-
-def filter_genes(x, column_header, row_header, genefile, col_num=0):
-    """takes a file and extracts the genes in the col_num specified column,
-    then uses it to filter the matrix"""
-
-    genelist = make_a_list(genefile, col_num)
-
-    # create position-based list for filtering from gene-names:
-    keeplist = []  # will be a position based list [ 0, 4, 23, 34, ... ]
-    for gene in genelist:
-        try:
-            keeplist.append(column_header.index(gene))
-        except:     # some columns will be headers that would cause errors.
-            pass
-
-    hitlist = range(len(column_header))
-    for posn in keeplist: # will be the inverse of keeplist
-        hitlist.remove(posn)
-
-    ## filter matrix with genelist:
-    y, column_header, row_header = filter_matrix(x, column_header, row_header, hitlist)
-
-    return y, column_header, row_header
-
-def filterData(x, column_header, row_header, mag=1.13, min_thresh=10, max_thresh=1000000):
-    """filters out any gene for which the magnitude of expression is less than mag,
-    or for which the maximum value of all samples is less than min_thresh,
-    or for which the maximum value is greater than max_thresh"""
-
-    n = len(x[0]); m = len(x) # m  samples, n  genes
-    print "Filtering %d genes and %d samples:\nMin fold change: %.1f Min expression level (at least one sample): %d Max expression level: %d" % (n, m, mag, min_thresh, max_thresh)
-
-    hitlist = []
-    for g in range(n):
-        fpkm_max = max(x[:,g])
-        fpkm_min = min(x[:,g])
-        size = numpy.absolute(fpkm_max/(fpkm_min + 0.00001))
-        #rms  = numpy.sqrt( sum(a**2 for a in x[:,g])/m )
-        if size < mag or fpkm_max < min_thresh or fpkm_max > max_thresh :
-            hitlist.append(g)
-
-    y, column_header, row_header = filter_matrix(x, column_header, row_header, hitlist)
-
-    return y, column_header, row_header
-
-def filter_matrix(x, column_header, row_header, hitlist):
-    """given the positional list hitlist, will edit matrix and column headers
-    by removing those positions"""
-
-    # create new matrix and column_header without the columns in the hitlist:
-    y = numpy.delete(x, hitlist, 1)
-    print "Number of genes removed:", len(hitlist)
-    for gene in hitlist[::-1]:
-        column_header.pop(gene)
-
-    n = len(y[0]); m = len(y) # m = 6 samples, n = 6000 genes
-    print "there are now %d genes and %d samples" % (n, m)
-    #print column_header
-
-    return y, column_header, row_header
-
-def filter_pretty(x, column_header, row_header, mag=2.5, group1="_F", group2="_S"):
-    """searches for genes with magnitude mag different between two groups, as defined by
-    group1 and group2 labels"""
-
-    n = len(x[0]); m = len(x) # m  samples, n  genes
-    print "Filtering %d genes and %d samples:\nMin fold change between groups: %.1f " % (n, m, mag)
-
-    # split matrix into two based on the specified groups;
-    group1list = []
-    group1posns = []
-    group2list = []
-    group2posns = []
-    for s in row_header:
-        if re.search(group1,s) is not None:
-            group1list.append(s)
-            group1posns.append(row_header.index(s))
-        elif re.search(group2, s) is not None:
-            group2list.append(s)
-            group2posns.append(row_header.index(s))
-        else:       # group not found in sample list
-            print "#" * 30
-            print "%s could not be matched to group1 (%s) or group2 (%s)" % (s, group1, group2)
-            print "#" * 30
-
-    print group1list
-    print group2list
-    #print group1posns
-    #print group2posns
-
-    grouporder = group1posns + group2posns
-    limit = len(group1posns)
-
-    print "grouporder", grouporder
-    print "limit", limit
-
-    matrix_reord = x[grouporder,:]
-
-    n = len(matrix_reord[0]); m = len(matrix_reord) # m  samples, n  genes
-    print "Filtering %d genes and %d samples:\nMin fold change between groups: %.1f " % (n, m, mag)
-
-
-    hitlist = []
-    for g in range(n):
-        mean1 = numpy.mean(matrix_reord[:limit,g])
-        mean2 = numpy.mean(matrix_reord[limit:,g])
-        ratio = mean1 / mean2
-        if numpy.absolute( numpy.log2(ratio) / numpy.log2(mag) ) < 1 :
-            hitlist.append(g)
-
-    y, column_header, row_header = filter_matrix(matrix_reord, column_header, row_header, hitlist)
-
-    return y, column_header, row_header
-
-def reorder_matrix(x, column_header, row_header, groups=["_F","_S"], verbose=False):
-    "reorders rows such that they are sorted accordign to specified groups"
-
-    n = len(x[0]); m = len(x) # m  samples, n  genes
-    print "Sorting genes into %d groups" % (len(groups))
-
-    # split matrix into two based on the specified groups;
-    namelist = {}
-    poslist = {}
-
-
-    for s in row_header:
-        for pattern in groups:
-            if pattern not in namelist:
-                namelist[pattern] = []
-                poslist[pattern] = []
-            # assign each sample to a group:
-            if re.search(pattern,s) is not None:
-                namelist[pattern].append(s)
-                poslist[pattern].append(row_header.index(s))
-                break
-        else:       # group not found in any sample list
-            print "#" * 30
-            print "%s could not be matched to any group ==> %r" % (s, groups)
-            print "#" * 30
-
-    grouporder = []
-    limits = []
-    boundarystone = 0
-    for pattern in groups:
-        try:
-            if verbose:
-                print pattern, namelist[pattern]
-            grouporder += poslist[pattern]
-            boundarystone += len(poslist[pattern])
-        except KeyError:
-            print pattern, "None found!"
-        limits.append(boundarystone)
-
-    if verbose:
-        print "grouporder       :", grouporder
-        print "limits (boundary):", limits
-
-    matrix_reord = x[grouporder,:]
-    row_header_new = [x for (y,x) in sorted(zip(grouporder,row_header))]
-
-    return matrix_reord, column_header, row_header, limits
-
-def average_matrix(x, column_header, row_header, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96","FP06", "FP12", "FP24","FP48", "FP96", "FL"]):
-    """for each group in variable groups, calculates the average value in the matrix, and
-    creates a new matrix showing average values"""
-
-    matrix_reord, column_header, reord_row_header, limits = reorder_matrix(x, \
-        column_header, row_header, \
-        groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96",\
-                "FP06", "FP12", "FP24","FP48", "FP96", "FL"])
-    n = len(matrix_reord[0]); m = len(matrix_reord)   # m  samples, n  genes
-
-    v = numpy.ones((len(groups),n)) # create new array of size (y groups) and (n genes)
-
-    for g in range(n):
-        v[0,g] = numpy.average(matrix_reord[:limits[0],g])
-        for i in range(len(groups)-1):
-            v[i + 1,g] = numpy.average(matrix_reord[limits[i]:limits[i + 1],g])
-
-    row_header = groups
-    return v, column_header, row_header
-
 ################# Data construction or import methods ##############################
 
 def create_table(build_list):
@@ -914,19 +905,17 @@ def create_table(build_list):
 
     return output_file
 
-
-
 ################# Data analyis methods #############################################
 
-def analyse_pca(matrix, column_header, row_header, filename, three_dim=True):
+def analyse_pca(cluster, three_dim=True):
     """
     performs principal component analysis on the matrix and saves output as png.
     No additional normalisation occurs at this step - all normalisation has been done
     on the matrix prior to PCA.
     """
     # create data array and name array:
-    A = matrix
-    names = row_header
+    A = cluster.data_matrix
+    names = cluster.row_header
 
     # assign colours to samples:
     colorconvert = {'F':'go', 'S':'co', 1:'ro', 2:'go', 3:'ko', 4:'bo', 5:'co', 6:'mo', 7:'yo', 8:'r<', 9:'g<', 10:'k<', 11:'b<', 12:'c<', 13:'m<', 14:'y<', 15:'rs', 16:'gs', 17:'ks', 18:'bs', 19:'cs', 20:'ms', 21:'ys' }
@@ -991,6 +980,7 @@ def analyse_pca(matrix, column_header, row_header, filename, three_dim=True):
     #q_scores = numpy.dot(numpy.sqrt(S), V.T)
     q_scores = numpy.dot(U, numpy.sqrt(S))
 
+    pp = PdfPages(cluster.filename[0:-4] + '.PCA.pdf')
     if three_dim:   # plot a three dimensional graph:
         fig = plt.figure(1)
         ax = fig.add_subplot(111, projection='3d')
@@ -1006,6 +996,7 @@ def analyse_pca(matrix, column_header, row_header, filename, three_dim=True):
         ax.set_ylabel("PC2 (%.2f%%)" % (100.0 * (s[1]**2)/sumval))
         ax.set_zlabel("PC3 (%.2f%%)" % (100.0 * (s[2]**2)/sumval))
 
+        plt.savefig(pp, format='pdf')
         plt.show()
     else:   # plot two 2D graphs instead:
         for idx in range(len(colourlist)):
@@ -1023,12 +1014,13 @@ def analyse_pca(matrix, column_header, row_header, filename, three_dim=True):
             plt.ylabel( "PC3 (%.2f%%)" % (100.0 * (s[2]**2)/sumval) )
             sub2.annotate( names[idx], xy=(q_scores[idx,0],q_scores[idx,2]),xytext=(-15,10), xycoords='data', textcoords='offset points' )
 
+        plt.savefig(pp, format='pdf')
         plt.show()
 
-
+        plt.close()
     return matrix_reduced
 
-def expression_dist(matrix, column_header, row_header, filename, max_x=500, min_x=0, histo=False):
+def expression_dist(cluster, max_x=500, min_x=0, histo=False):
     "Creates histogram of gene expression"
 
     count = 0
@@ -1036,18 +1028,18 @@ def expression_dist(matrix, column_header, row_header, filename, max_x=500, min_
     # create box and whisker plot of each sample:
     fig = plt.figure()
     subp = fig.add_subplot(111)
-    something = subp.boxplot(matrix.transpose())
+    something = subp.boxplot(cluster.data_matrix.transpose())
 
     # create labels for each sample:
-    rng = [ i + 1 for i in range(len(row_header)) ]
-    plt.xticks(rng , row_header)
+    rng = [ i + 1 for i in range(len(cluster.row_header)) ]
+    plt.xticks(rng , cluster.row_header)
 
     plt.show()
 
     if histo:
-        for row in matrix:
+        for row in cluster.data_matrix:
             fig = plt.figure()
-            subf = fig.add_subplot(111, title=row_header[count])
+            subf = fig.add_subplot(111, title=cluster.row_header[count])
             n, bins, patches = subf.hist(row, 50, range=(min_x,max_x), histtype='stepfilled')
             count += 1
         plt.setp(labels, rotation=90)
@@ -1069,42 +1061,38 @@ def find_degs(x, column_header, row_header, group1="_F", group2="_S"):
 
     return t_dict
 
-def degs_anova(x, column_header, row_header, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96", "FL", "FP06", "FP12", "FP24","FP48", "FP96" ], onegene=False):
+def degs_anova(cluster, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96", "FL", "FP06", "FP12", "FP24","FP48", "FP96" ], onegene=False):
     "finds DEGs using ANOVA and returns dictionary { Gene:P-value }"
 
-    matrix_reord, column_header, reord_row_header, limits = reorder_matrix(x, column_header, row_header, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96","FP06", "FP12", "FP24","FP48", "FP96", "FL"])     # groups=["SL12","SL24","SL48","SL96","FP12","FP24","FP48","FP96","SP12","FL12"])
-    n = len(matrix_reord[0]); m = len(matrix_reord) # m  samples, n  genes
+    limits = cluster.reorder_matrix(groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96","FP06", "FP12", "FP24","FP48", "FP96", "FL"])
 
-    # boundaries in matrix for each time point:
-    #SL12,SL24,SL48,SL96,FP12,FP24,FP48,FP96,SP12,FL12 = limits[0], limits[1], limits[2], limits[3], limits[4], limits[5], limits[6], limits[7], limits[8], limits[9]
-    #for i in range(len(limits)):
     A_dict = {}
 
     if onegene:
         try:
-            g = column_header.index(onegene)
-            f_val, p_val = stats.f_oneway(matrix_reord[:limits[0],g],\
-                matrix_reord[limits[0]:limits[1],g], matrix_reord[limits[1]:limits[2],g],\
-                matrix_reord[limits[2]:limits[3],g], matrix_reord[limits[3]:limits[4],g],\
-                matrix_reord[limits[4]:limits[5],g], matrix_reord[limits[5]:limits[6],g],\
-                matrix_reord[limits[6]:limits[7],g], matrix_reord[limits[7]:limits[8],g],\
-                matrix_reord[limits[8]:limits[9],g], matrix_reord[limits[9]:limits[10],g],\
-                matrix_reord[limits[10]:limits[11],g])
-            A_dict[column_header[g]] = p_val
+            g = cluster.gene_header.index(onegene)
+            f_val, p_val = stats.f_oneway(cluster.data_matrix[:limits[0],g],\
+                cluster.data_matrix[limits[0]:limits[1],g], cluster.data_matrix[limits[1]:limits[2],g],\
+                cluster.data_matrix[limits[2]:limits[3],g], cluster.data_matrix[limits[3]:limits[4],g],\
+                cluster.data_matrix[limits[4]:limits[5],g], cluster.data_matrix[limits[5]:limits[6],g],\
+                cluster.data_matrix[limits[6]:limits[7],g], cluster.data_matrix[limits[7]:limits[8],g],\
+                cluster.data_matrix[limits[8]:limits[9],g], cluster.data_matrix[limits[9]:limits[10],g],\
+                cluster.data_matrix[limits[10]:limits[11],g])
+            A_dict[cluster.gene_header[g]] = p_val
         except:
             print "Gene %s not found!" % (onegene)
     else:
-        print "Performing ANOVA for %d genes" % (n)
+        print "Performing ANOVA for %d genes" % (cluster.genenumber)
         #print "limits for anova:",limits
-        for g in range(n):
+        for g in range(cluster.genenumber):
             f_val, p_val = stats.f_oneway(matrix_reord[:limits[0],g],\
-                matrix_reord[limits[0]:limits[1],g], matrix_reord[limits[1]:limits[2],g],\
-                matrix_reord[limits[2]:limits[3],g], matrix_reord[limits[3]:limits[4],g],\
-                matrix_reord[limits[4]:limits[5],g], matrix_reord[limits[5]:limits[6],g],\
-                matrix_reord[limits[6]:limits[7],g], matrix_reord[limits[7]:limits[8],g],\
-                matrix_reord[limits[8]:limits[9],g], matrix_reord[limits[9]:limits[10],g],\
-                matrix_reord[limits[10]:limits[11],g])
-            A_dict[column_header[g]] = p_val
+                cluster.data_matrix[limits[0]:limits[1],g], cluster.data_matrix[limits[1]:limits[2],g],\
+                cluster.data_matrix[limits[2]:limits[3],g], cluster.data_matrix[limits[3]:limits[4],g],\
+                cluster.data_matrix[limits[4]:limits[5],g], cluster.data_matrix[limits[5]:limits[6],g],\
+                cluster.data_matrix[limits[6]:limits[7],g], cluster.data_matrix[limits[7]:limits[8],g],\
+                cluster.data_matrix[limits[8]:limits[9],g], cluster.data_matrix[limits[9]:limits[10],g],\
+                cluster.data_matrix[limits[10]:limits[11],g])
+            A_dict[cluster.gene_header[g]] = p_val
 
     return A_dict
 
@@ -1204,7 +1192,6 @@ def bar_charts(x, column_header, row_header, genelist, filename, groups=["SP", "
         """
     pp.close()
 
-
 ################# Miscellaneous methods #############################################
 
 def make_a_list(geneobj, col_num=0):
@@ -1253,15 +1240,16 @@ if __name__ == '__main__':
     # input options
     parser.add_argument("-D", "--data_file", type=str, help="The data file for analysing")
     parser.add_argument("-B", "--build_table", type=str, dest="build_list", default=None, help="Provide a comma-delimited list of cufflinks files with which to build the fpkm table for analysis.")
+    parser.add_argument("-T", "--genes_as_rows", action='store_true',  help="Select if top row of data file is sample names")
     # output options
     parser.add_argument("-o", "--output_file", dest='filename', type=str, default=None, help="output file path and root name for results")
     parser.add_argument("-e", "--export_table", action='store_true', help="export transformed expression matrix")
     # analysis options
     parser.add_argument("--no_clustering", action='store_true', help="Turn of clustering. Performs data transformation, filtering and analysis, then exits")
-    parser.add_argument("-R", "--row_method", type=str, dest="row_method", default='complete', help="The clustering method for rows \n(single, average, complete, etc)")
-    parser.add_argument("-C", "--column_method", type=str, dest="column_method", default='complete', help="The clustering method for columns \n(single, average, complete, weighted, ward, centroid, etc)")
-    parser.add_argument("-r", "--row_metric", type=str, dest="row_metric", default='correlation', help="The distance metric for rows \n(euclidean, correlation, cosine, manhattan, etc)")
-    parser.add_argument("-c", "--column_metric", type=str, dest="column_metric", default='correlation', help="The distance metric for columns \n(euclidean, correlation, manhattan, etc)")
+    parser.add_argument("-R", "--sample_method", type=str, dest="row_method", default='complete', help="The clustering method for samples \n(single, average, complete, etc)")
+    parser.add_argument("-G", "--gene_method", type=str, dest="column_method", default='complete', help="The clustering method for genes \n(single, average, complete, weighted, ward, centroid, etc)")
+    parser.add_argument("-r", "--sample_metric", type=str, dest="row_metric", default='correlation', help="The distance metric for samples \n(euclidean, correlation, cosine, manhattan, etc)")
+    parser.add_argument("-g", "--gene_metric", type=str, dest="column_metric", default='correlation', help="The distance metric for genes \n(euclidean, correlation, manhattan, etc)")
     parser.add_argument("-P", "--pca", action='store_true',  help="Performs principal component analysis.")
     parser.add_argument("-a", "--anova", type=float,  help="Perform ANOVA on 10 groups, and report genes with P-value less than value specified")
     parser.add_argument("-A", "--filter_anova", type=float, help="Perform ANOVA and filter genes to keep only those with P-value less than value given")
@@ -1270,7 +1258,7 @@ if __name__ == '__main__':
     parser.add_argument("-K", "--kegg", type=float, help="Perform KEGG pathway enrichment analysis on gene clusters using specified p-value")
     parser.add_argument("-E", "--go_enrichment", action='store_true', help="Perform GO term enrichment analysis on gene clusters")
     # viewing options
-    parser.add_argument("-g", "--color_gradient", type=str, dest="color_gradient", default='red_white_blue', help="The colour scheme \n(red_white_blue, red_black_sky, red_black_blue, \nred_black_green, yellow_black_blue, seismic, \ngreen_white_purple, coolwarm)")
+    parser.add_argument("-c", "--color_gradient", type=str, dest="color_gradient", default='red_white_blue', help="The colour scheme \n(red_white_blue, red_black_sky, red_black_blue, \nred_black_green, yellow_black_blue, seismic, \ngreen_white_purple, coolwarm)")
     parser.add_argument("-d", "--distribution", action='store_true', default=False, help="Shows FPKM distribution of each sample before and after normalisation")
     parser.add_argument("--display_off", action='store_true', help="Turn of displaying of clustering")
     parser.add_argument("--display_reverse", action='store_true', help="Switch gene and sample axes on graphs")
@@ -1281,13 +1269,11 @@ if __name__ == '__main__':
     parser.add_argument("-p", "--fpkm_max", type=float, dest="fpkm_max", default=1000000, help="Filters out genes with maximum fpkm greater than value given. Default = 1 000 000")
     parser.add_argument("-q", "--fpkm_min", type=int, dest="fpkm_min", default=10, help="Filters out genes with maximum fpkm less than value given. Default = 10")
     parser.add_argument("-f", "--filter_off", action='store_true', help="Turns off filtering. ")
-    parser.add_argument("-y", "--pretty_filter", type=float, default=None, help="Filters (non-normalised) matrix to remove genes whose mean value between treatments is less than value given. Try 2.5")
     parser.add_argument("--kill_PC1", action='store_true', help="removes first principal component")
     # data transform options
     parser.add_argument("-t", "--transform_off", action='store_true', default=False, help="Turns off log2(FPKM + 1) transformation (prior to normalisation if selected).")
     parser.add_argument("-n", "--normalise_off", action='store_true', default=False, help="Turns off normalisation. Normalises by dividing by the standard deviation.")
     parser.add_argument("-u", "--centering_off", action='store_true', default=False, help="Turns off gene centering. Centering subtracts the mean from all values for a gene, giving mean = 0.")
-    parser.add_argument("-T", "--transpose", action='store_true',  help="Transpose the matrix. Columns should represent genes, Rows samples")
     parser.add_argument("-X", "--sample_norm", action='store_true', help='Normalises samples instead of genes')
     parser.add_argument("--show_averages", action='store_true', help="Calculates the average value for each group and clusters based on this new matrix")
 
@@ -1322,28 +1308,20 @@ if __name__ == '__main__':
 
 
     ## create matrix:
-    matrix, column_header, row_header = importData(data_table)
-
-    row_header = clean_header(row_header)
-
-    ## transpose the matrix and swap the column and row headers.
-    if args.transpose:
-        matrix = numpy.transpose(matrix)
-        tempcol = column_header
-        column_header = row_header
-        row_header = tempcol
+    cluster = Cluster(data_table, firstrow=True, genes_as_rows=args.genes_as_rows, \
+                gene_metric=args.gene_metric, sample_metric=args.sample_metric, \
+                gene_method=args.gene_method, sample_method=args.sample_method, \
+                color_gradient=args.color_gradient)
 
 
     ####### FILTERING OF MATRIX ###########
 
-    ## filter by differences between groups
-    if args.pretty_filter:
-        matrix, column_header, row_header = filter_pretty(matrix, column_header, row_header, mag=args.pretty_filter)
 
     ## filter by provided gene list
     if args.gene_list:
-        print "Only keeping genes provided in", args.gene_list
-        matrix, column_header, row_header = filter_genes(matrix, column_header, row_header, args.gene_list, col_num=0)
+        genelist = make_a_list(args.gene_list)
+        print "Filtering to keep %d genes" % len(genelist)
+        cluster.filter_genes(genelist)
 
     ## display average values for each group instead of individual values
     if args.show_averages is True:
@@ -1353,57 +1331,54 @@ if __name__ == '__main__':
         args.ttest_thresh = False
         args.ttest = False
 
-        matrix, column_header, row_header = average_matrix(matrix, column_header,\
-            row_header, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96",\
+       cluster.average_matrix(groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96",\
                                 "FP06", "FP12", "FP24","FP48", "FP96", "FL"])
-
-
 
     ## filter by magnitude, minimum values and maximum values
     if not args.filter_off:
-        matrix, column_header, row_header = filterData(matrix, column_header, row_header,  mag=args.filter, min_thresh=args.fpkm_min, max_thresh=args.fpkm_max)
+        cluster.filterData(mag=args.filter, min_thresh=args.fpkm_min, max_thresh=args.fpkm_max)
 
 
     ####### NORMALISATION OPTIONS ##############
 
     ## show gene distribution
     if args.distribution:
-        expression_dist(matrix, column_header, row_header, data_table)
+        expression_dist(cluster)
 
     ## normalise matrix
-    meanlist = normaliseData(matrix, center=not(args.centering_off), norm_var=not(args.normalise_off), log_t=not(args.transform_off), sample_norm=args.sample_norm)
+    meanlist = cluster.normaliseData(matrix, center=not(args.centering_off), norm_var=not(args.normalise_off), log_t=not(args.transform_off), sample_norm=args.sample_norm)
 
     ## show distribution after normalisation
     if args.distribution:
-        expression_dist(matrix, column_header, row_header, args.data_file, min_x=-2, max_x=2)
+        expression_dist(cluster, min_x=-2, max_x=2)
 
     ## export transformed data table:
     if args.export_table:
-        export_expression_table(filename, column_header, row_header, matrix)
+        cluster.export()
 
     ####### ANALYSIS OPTIONS ##############
 
     ## Principal Component Analysis:
     if args.pca:
-        matrix_red = analyse_pca(matrix, column_header, row_header, data_table)
+        matrix_red = analyse_pca(cluster, data_table)
 
     if args.kill_PC1:
-        matrix = matrix_red
+        cluster.data_matrix = matrix_red
 
     ## ANOVA analysis
     if args.filter_anova:
         a_list = []
-        a_dict = degs_anova(matrix, column_header, row_header)
+        a_dict = degs_anova(cluster)
         out_h = open(filename[:-4] + ".ANOVA.list", 'w')
         for gene in a_dict:
             if a_dict[gene] <= args.filter_anova:
                 out_h.write( "%-12s P-value: %.9f\n" % (gene, a_dict[gene]) )
                 a_list.append(gene)
         out_h.close()
-        print "Filtering matrix to %d genes with ANOVA P-value less than %.2f" % (len(a_list), args.filter_anova)
-        matrix, column_header, row_header = filter_genes(matrix, column_header, row_header, a_list)
+        print "Filtering matrix to %d genes with ANOVA P-value less than %.4f" % (len(a_list), args.filter_anova)
+        cluster.filter_genes(a_list)
     elif args.anova:
-        a_dict = degs_anova(matrix, column_header, row_header)
+        a_dict = degs_anova(cluster)
         out_h = open(filename[:-4] + ".ANOVA.list", 'w')
         for gene in a_dict:
             if a_dict[gene] <= args.anova:
