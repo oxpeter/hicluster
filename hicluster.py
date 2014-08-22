@@ -54,16 +54,224 @@ import genematch
 #SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 class Datamatrix(object):
-    def __init__(self, matrix, gene_header, sample_header, gene_metric, sample_metric, \
-                color_gradient, filename):
-        self.data_matrix    = matrix
-        self.gene_header    = gene_header
-        self.sample_header  = sample_header
+    def __init__(self, filename, firstrow=True, genes_as_rows=False, \
+                gene_metric='correlation', sample_metric='correlation', \
+                gene_method='complete', sample_method='complete', \
+                color_gradient='red_white_blue'):
+        """Creates a matrix from the designated file, and assigns variables as appropriate
+        """
+        self.importData(filename, firstrow)
+
         self.gene_metric    = gene_metric
         self.sample_metric  = sample_metric
+        self.gene_method    = gene_method
+        self.sample_method  = sample_method
+
+        self._genes_as_rows = genes_as_rows
+        self.refresh_headers()
+
+        self.samplesize, self.genenumber = self.check_size()
+
+        self.vmax, self.vmin= self.getColorRange()
+
+        if color_gradient == 'red_white_blue':
+            self.cmap = plt.cm.bwr
+        if color_gradient == 'red_black_sky':
+            self.cmap = self._RedBlackSkyBlue()
+        if color_gradient == 'red_black_blue':
+            self.cmap = self._RedBlackBlue()
+        if color_gradient == 'red_black_green':
+            self.cmap = self._RedBlackGreen()
+        if color_gradient == 'yellow_black_blue':
+            self.cmap = self._YellowBlackBlue()
+        if color_gradient == 'seismic':
+            self.cmap = plt.cm.seismic
+        if color_gradient == 'green_white_purple':
+            self.cmap = plt.cm.PiYG_r
+        if color_gradient == 'coolwarm':
+            self.cmap = plt.cm.coolwarm
+
+    def importData(self, filename, first_row=True):
+        start_time = time.time()
+        matrix=[]
+        row_header=[]
+
+        dataset_name = os.path.basename(filename)
+
+        filename_h = open(filename, 'rb')
+        for line in filename_h:
+            t = line[:-1].split() ### remove end-of-line character - file is tab- or space-delimited
+            if first_row:
+                column_header = t[:]    # check later to see if first element needs to be removed
+                first_row=False
+            else:
+                if 'X' not in t and '-' not in t: ### Occurs for rows with missing data
+                    try:
+                        s = map(float,t[1:])
+                    except: # most common error for new analysis - creating a column containing cufflinks header names.
+                        for element in t[1:]:
+                            try:
+                                float(element)
+                            except ValueError:
+                                print "Error importing table. Expected value, got %r instead!" % element
+                    if (abs(max(s)-min(s)))>0: # only add to matrix if not all zeros
+                        matrix.append(s)
+                        row_header.append(t[0])
+
+        # check appropriate number of items added to column header:
+        if len(matrix[0]) == len(column_header) - 1:
+            column_header = column_header[1:]
+
+        time_diff = str(round(time.time()-start_time,1))
+        try:
+            print '\n%d rows and %d columns imported for %s in %s seconds...' % (len(matrix),len(column_header),dataset_name,time_diff)
+        except Exception:
+            print 'No data in input file.'; force_error
+
+        self.filename       = filename
+        self.data_matrix    = numpy.array(matrix)
+        self.column_header  = column_header
+        self.row_header     = row_header
+
+    def clean_header(self):
+        "removes long path name from row headers"
+
+        new_headers = []
+        for name in self.sample_header:
+            try:
+                newname = re.findall('/([^/]*)', name)[-2]
+            except:
+                newname = name
+            new_headers.append(newname)
+
+        if self._genes_as_rows:
+            self.column_header = new_headers
+        else:
+            self.row_header = new_headers
+        self.refresh_headers()
+
+    def refresh_headers(self):
+        if self._genes_as_rows:
+            self.sample_header = self.column_header
+            self.gene_header   = self.row_header
+            self.row_metric    = self.gene_metric
+            self.column_metric = self.sample_metric
+            self.row_method    = self.gene_method
+            self.column_method = self.sample_method
+        else:
+            self.sample_header = self.row_header
+            self.gene_header   = self.column_header
+            self.column_metric = self.gene_metric
+            self.row_metric    = self.sample_metric
+            self.column_method = self.gene_method
+            self.row_method    = self.sample_method
+
+    def invert_matrix(self):
+        self.data_matrix = numpy.transpose(self.data_matrix)
+        tempcol = self.column_header
+        self.column_header = row_header
+        self.row_header = tempcol
+
+        if self._genes_as_rows:
+            self._genes_as_rows = False
+        else:
+            self._genes_as_rows = True
+
+    def set_genes_to_rows(self):
+        if self._genes_as_rows is False:
+            self.invert_matrix()
+
+    ## Create Custom Color Gradients ########################################
+    #http://matplotlib.sourceforge.net/examples/plt_examples/custom_cmap.html
+
+    def _RedBlackSkyBlue(self):
+        cdict = {'red':   ((0.0, 0.0, 0.0),
+                           (0.5, 0.0, 0.1),
+                           (1.0, 1.0, 1.0)),
+
+                 'green': ((0.0, 0.0, 0.9),
+                           (0.5, 0.1, 0.0),
+                           (1.0, 0.0, 0.0)),
+
+                 'blue':  ((0.0, 0.0, 1.0),
+                           (0.5, 0.1, 0.0),
+                           (1.0, 0.0, 0.0))
+                }
+
+        my_cmap = matplotlib.colors.LinearSegmentedColormap('my_colormap',cdict,256)
+        return my_cmap
+
+    def _RedBlackBlue(self):
+        cdict = {'red':   ((0.0, 0.0, 0.0),
+                           (0.5, 0.0, 0.1),
+                           (1.0, 1.0, 1.0)),
+
+                 'green': ((0.0, 0.0, 0.0),
+                           (1.0, 0.0, 0.0)),
+
+                 'blue':  ((0.0, 0.0, 1.0),
+                           (0.5, 0.1, 0.0),
+                           (1.0, 0.0, 0.0))
+                }
+
+        my_cmap = matplotlib.colors.LinearSegmentedColormap('my_colormap',cdict,256)
+        return my_cmap
+
+    def _RedBlackGreen(self):
+        cdict = {'red':   ((0.0, 0.0, 0.0),
+                           (0.5, 0.0, 0.1),
+                           (1.0, 1.0, 1.0)),
+
+                 'blue': ((0.0, 0.0, 0.0),
+                           (1.0, 0.0, 0.0)),
+
+                 'green':  ((0.0, 0.0, 1.0),
+                           (0.5, 0.1, 0.0),
+                           (1.0, 0.0, 0.0))
+                }
+
+        my_cmap = matplotlib.colors.LinearSegmentedColormap('my_colormap',cdict,256)
+        return my_cmap
+
+    def _YellowBlackBlue(self):
+        cdict = {'red':   ((0.0, 0.0, 0.0),
+                           (0.5, 0.0, 0.1),
+                           (1.0, 1.0, 1.0)),
+
+                 'green': ((0.0, 0.0, 0.8),
+                           (0.5, 0.1, 0.0),
+                           (1.0, 1.0, 1.0)),
+
+                 'blue':  ((0.0, 0.0, 1.0),
+                           (0.5, 0.1, 0.0),
+                           (1.0, 0.0, 0.0))
+                }
+        ### yellow is created by adding y = 1 to RedBlackSkyBlue green last tuple
+        ### modulate between blue and cyan using the last y var in the first green tuple
+        my_cmap = matplotlib.colors.LinearSegmentedColormap('my_colormap',cdict,256)
+        return my_cmap
+
+    def getColorRange(self):
+        """ Determines the range of colors, centered at zero, for normalizing cmap """
+        vmax=self.data_matrix.max()
+        vmin=self.data_matrix.min()
+
+        if vmax * vmin > 0:     # ie number range spans +ve and -ve
+            vmax = max([vmax,abs(vmin)])
+            vmin = -1*vmax
+
+        return vmax,vmin
+
+    def check_size(self):
+        self.samplesize     = len(matrix)
+        self.genenumber     = len(matrix[0])
+        assert len(self.gene_header) == self.genenumber
+        assert len(self.sample_header) == self.samplesize
+        return self.samplesize, self.genenumber
 
 
-def heatmap(x, row_header, column_header, row_method,
+
+def heatmap(cluster, x, row_header, column_header, row_method,
             column_method, row_metric, column_metric,
             color_gradient, filename, display=True,
             kegg=False, go=False):
@@ -75,39 +283,16 @@ def heatmap(x, row_header, column_header, row_method,
     http://old.nabble.com/How-to-plot-heatmap-with-matplotlib--td32534593.html
     http://stackoverflow.com/questions/7664826/how-to-get-flat-clustering-corresponding-to-color-clusters-in-the-dendrogram-cre
 
-    x is an m by n ndarray, m observations, n genes
+    cluster.data_matrix is an m by n ndarray, m observations, n genes
     """
-    n = len(x[0]); m = len(x) # m  samples, n  genes
-    print "Size of array: %d genes and %d samples.\nSize of header: %d genes\nSize of sample header: %d " % (n, m, len(column_header), len(row_header) )
 
-    assert len(column_header) == n
+    print "clustering %d genes and %d samples." % (cluster.genenumber, cluster.samplesize )
 
     ### Define the color gradient to use based on the provided name
-    n = len(x[0]); m = len(x)
-    if color_gradient == 'red_white_blue':
-        cmap=plt.cm.bwr
-    if color_gradient == 'red_black_sky':
-        cmap=RedBlackSkyBlue()
-    if color_gradient == 'red_black_blue':
-        cmap=RedBlackBlue()
-    if color_gradient == 'red_black_green':
-        cmap=RedBlackGreen()
-    if color_gradient == 'yellow_black_blue':
-        cmap=YellowBlackBlue()
-    if color_gradient == 'seismic':
-        cmap=plt.cm.seismic
-    if color_gradient == 'green_white_purple':
-        cmap=plt.cm.PiYG_r
-    if color_gradient == 'coolwarm':
-        cmap=plt.cm.coolwarm
+    n = cluster.genenumber; m = cluster.samplesize
 
     ### Scale the max and min colors so that 0 is white/black
-
-    vmin=x.min()
-    #print "line 77: vmin = %.5f\nm = %d\nn = %d" % (vmin, m, n)
-    vmax=x.max()
-    vmax = max([vmax,abs(vmin)])
-    vmin = vmax*-1
+    vmax, vmin = cluster.getColorRange()
     norm = mpl.colors.Normalize(vmin/2, vmax/2) ### adjust the max and min to scale these colors
 
     ### Scale the Matplotlib window size
@@ -153,7 +338,7 @@ def heatmap(x, row_header, column_header, row_method,
     # Compute and plot top dendrogram
     if column_method != None:
         start_time = time.time()
-        d2 = dist.pdist(x.T)
+        d2 = dist.pdist(cluster.data_matrix.T)
         D2 = dist.squareform(d2)
         ax2 = fig.add_axes([ax2_x, ax2_y, ax2_w, ax2_h], frame_on=True)
         Y2 = sch.linkage(D2, method=column_method, metric=column_metric) ### array-clustering metric - 'average', 'single', 'centroid', 'complete'
@@ -174,7 +359,7 @@ def heatmap(x, row_header, column_header, row_method,
     # Compute and plot left dendrogram.
     if row_method != None:
         start_time = time.time()
-        d1 = dist.pdist(x)
+        d1 = dist.pdist(cluster.data_matrix)
         D1 = dist.squareform(d1)  # full matrix
         ax1 = fig.add_axes([ax1_x, ax1_y, ax1_w, ax1_h], frame_on=True) # frame_on may be False
         Y1 = sch.linkage(D1, method=row_method, metric=row_metric) ### gene-clustering metric - 'average', 'single', 'centroid', 'complete'
@@ -189,7 +374,7 @@ def heatmap(x, row_header, column_header, row_method,
 
     # Plot distance matrix.
     axm = fig.add_axes([axm_x, axm_y, axm_w, axm_h])  # axes for the data matrix
-    xt = x
+    xt = cluster.data_matrix
     if column_method != None:
 
         ## create a list containing the order of the rearranged matrix:
@@ -203,23 +388,23 @@ def heatmap(x, row_header, column_header, row_method,
         ind1 = [ ind1[i] for i in idx1 ]
         #ind1 = ind1[idx1,:] ### reorder the flat cluster to match the order of the leaves the dendrogram
     ### taken from http://stackoverflow.com/questions/2982929/plotting-results-of-hierarchical-clustering-ontop-of-a-matrix-of-data-in-python/3011894#3011894
-    im = axm.matshow(xt, aspect='auto', origin='lower', cmap=cmap, norm=norm) ### norm=norm added to scale coloring of expression with zero = white or black
+    im = axm.matshow(xt, aspect='auto', origin='lower', cmap=cluster.cmap, norm=norm) ### norm=norm added to scale coloring of expression with zero = white or black
     axm.set_xticks([]) ### Hides x-ticks
     axm.set_yticks([])
 
     # Add text for row data, rearrange column headers according to clustering:
     new_row_header=[]
     new_column_header=[]
-    for i in range(x.shape[0]):
+    for i in range(cluster.data_matrix.shape[0]):
         if row_method != None:
             if len(row_header)<100: ### Don't visualize gene associations when more than 100 rows
-                axm.text(x.shape[1]-0.5, i, '  ' + row_header[idx1[i]])
+                axm.text(cluster.data_matrix.shape[1]-0.5, i, '  ' + row_header[idx1[i]])
             new_row_header.append(row_header[idx1[i]])
         else:
             if len(row_header)<100: ### Don't visualize gene associations when more than 100 rows
-                axm.text(x.shape[1]-0.5, i, '  ' + row_header[i]) ### When not clustering rows
+                axm.text(cluster.data_matrix.shape[1]-0.5, i, '  ' + row_header[i]) ### When not clustering rows
             new_row_header.append(row_header[i])
-    for i in range(x.shape[1]):
+    for i in range(cluster.data_matrix.shape[1]):
         if column_method != None:
             #axm.text(i, -0.9, ' ' + column_header[idx2[i]], rotation=270, verticalalignment="top") #  rotation could also be degrees
             new_column_header.append(column_header[idx2[i]])
@@ -322,7 +507,7 @@ def heatmap(x, row_header, column_header, row_method,
 
     # Plot color legend
     axcb = fig.add_axes([axcb_x, axcb_y, axcb_w, axcb_h], frame_on=False)  # axes for colorbar
-    cb = mpl.colorbar.ColorbarBase(axcb, cmap=cmap, norm=norm, orientation='horizontal')
+    cb = mpl.colorbar.ColorbarBase(axcb, cmap=cluster.cmap, norm=norm, orientation='horizontal')
     axcb.set_title("colorkey")
 
 
@@ -347,19 +532,6 @@ def heatmap(x, row_header, column_header, row_method,
 
     return new_column_header, ind2  # this is to allow group-specific KEGG enrichment analysis
 
-def getColorRange(x):
-    """ Determines the range of colors, centered at zero, for normalizing cmap """
-    vmax=x.max()
-    vmin=x.min()
-    if vmax<0 and vmin<0: direction = 'negative'
-    elif vmax>0 and vmin>0: direction = 'positive'
-    else: direction = 'both'
-    if direction == 'both':
-        vmax = max([vmax,abs(vmin)])
-        vmin = -1*vmax
-        return vmax,vmin
-    else:
-        return vmax,vmin
 
 ################# Export the flat cluster data #####################################
 
@@ -464,75 +636,7 @@ def exportFlatClusterData(filename, new_row_header,new_column_header,xt,ind1,ind
         i+=1
     export_cdt.close()
 
-################# Create Custom Color Gradients ####################################
-#http://matplotlib.sourceforge.net/examples/plt_examples/custom_cmap.html
 
-def RedBlackSkyBlue():
-    cdict = {'red':   ((0.0, 0.0, 0.0),
-                       (0.5, 0.0, 0.1),
-                       (1.0, 1.0, 1.0)),
-
-             'green': ((0.0, 0.0, 0.9),
-                       (0.5, 0.1, 0.0),
-                       (1.0, 0.0, 0.0)),
-
-             'blue':  ((0.0, 0.0, 1.0),
-                       (0.5, 0.1, 0.0),
-                       (1.0, 0.0, 0.0))
-            }
-
-    my_cmap = matplotlib.colors.LinearSegmentedColormap('my_colormap',cdict,256)
-    return my_cmap
-
-def RedBlackBlue():
-    cdict = {'red':   ((0.0, 0.0, 0.0),
-                       (0.5, 0.0, 0.1),
-                       (1.0, 1.0, 1.0)),
-
-             'green': ((0.0, 0.0, 0.0),
-                       (1.0, 0.0, 0.0)),
-
-             'blue':  ((0.0, 0.0, 1.0),
-                       (0.5, 0.1, 0.0),
-                       (1.0, 0.0, 0.0))
-            }
-
-    my_cmap = matplotlib.colors.LinearSegmentedColormap('my_colormap',cdict,256)
-    return my_cmap
-
-def RedBlackGreen():
-    cdict = {'red':   ((0.0, 0.0, 0.0),
-                       (0.5, 0.0, 0.1),
-                       (1.0, 1.0, 1.0)),
-
-             'blue': ((0.0, 0.0, 0.0),
-                       (1.0, 0.0, 0.0)),
-
-             'green':  ((0.0, 0.0, 1.0),
-                       (0.5, 0.1, 0.0),
-                       (1.0, 0.0, 0.0))
-            }
-
-    my_cmap = matplotlib.colors.LinearSegmentedColormap('my_colormap',cdict,256)
-    return my_cmap
-
-def YellowBlackBlue():
-    cdict = {'red':   ((0.0, 0.0, 0.0),
-                       (0.5, 0.0, 0.1),
-                       (1.0, 1.0, 1.0)),
-
-             'green': ((0.0, 0.0, 0.8),
-                       (0.5, 0.1, 0.0),
-                       (1.0, 1.0, 1.0)),
-
-             'blue':  ((0.0, 0.0, 1.0),
-                       (0.5, 0.1, 0.0),
-                       (1.0, 0.0, 0.0))
-            }
-    ### yellow is created by adding y = 1 to RedBlackSkyBlue green last tuple
-    ### modulate between blue and cyan using the last y var in the first green tuple
-    my_cmap = matplotlib.colors.LinearSegmentedColormap('my_colormap',cdict,256)
-    return my_cmap
 
 ################# Matrix manipulation methods ######################################
 
@@ -798,65 +902,7 @@ def create_table(build_list):
 
     return output_file
 
-def importData(filename):
-    start_time = time.time()
-    matrix=[]
-    row_header=[]
-    first_row=True
 
-    if '/' in filename:
-        dataset_name = string.split(filename,'/')[-1][:-4]
-    else:
-        dataset_name = string.split(filename,'\\')[-1][:-4]
-
-    filename_h = open(filename, 'rb')
-    for line in filename_h:
-        t = line[:-1].split() ### remove end-of-line character - file is tab- or space-delimited
-        if first_row:
-            column_header = t[1:]
-            first_row=False
-        else:
-            if 'X' not in t and '-' not in t: ### Occurs for rows with missing data
-                try:
-                    s = map(float,t[1:])
-                except: # most common error for new analysis - creating a column containing cufflinks header names.
-                    for element in t[1:]:
-                        try:
-                            float(element)
-                        except ValueError:
-                            print "Error importing table. Expected value, got %r instead!" % element
-                if (abs(max(s)-min(s)))>0:
-                    matrix.append(s)
-                    row_header.append(t[0])
-
-
-    # check appropriate number of items added to column header:
-    if len(matrix[0]) != len(column_header):
-        print "Fixing column header"
-        filename_h = open(filename, 'rb')
-        column_header = filename_h.next().split()[:]
-        filename_h.close()
-
-    time_diff = str(round(time.time()-start_time,1))
-    try:
-        print '\n%d rows and %d columns imported for %s in %s seconds...' % (len(matrix),len(column_header),dataset_name,time_diff)
-    except Exception:
-        print 'No data in input file.'; force_error
-
-    return numpy.array(matrix), column_header, row_header
-
-def clean_header(row_header):
-    "removes long path name from row headers"
-
-    new_headers = []
-    for name in row_header:
-        try:
-            newname = re.findall('/([^/]*)', name)[-2]
-        except:
-            newname = name
-        new_headers.append(newname)
-
-    return new_headers
 
 ################# Data analyis methods #############################################
 
