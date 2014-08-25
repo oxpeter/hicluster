@@ -54,13 +54,13 @@ import genematch
 #SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 class Cluster(object):
-    def __init__(self, filename, firstrow=True, genes_as_rows=False, \
+    def __init__(self, datafile, exportPath=os.getcwd(), firstrow=True, genes_as_rows=False, \
                 gene_metric='correlation', sample_metric='correlation', \
                 gene_method='complete', sample_method='complete', \
                 color_gradient='red_white_blue'):
         """Creates a matrix from the designated file, and assigns variables as appropriate
         """
-        self.importData(filename, firstrow)
+        self.importData(datafile, firstrow)
 
         self.gene_metric    = gene_metric
         self.sample_metric  = sample_metric
@@ -97,6 +97,8 @@ class Cluster(object):
             self.cmap = plt.cm.PiYG_r
         if color_gradient == 'coolwarm':
             self.cmap = plt.cm.coolwarm
+
+        self.exportPath = exportPath
 
     def importData(self, filename, first_row=True):
         start_time = time.time()
@@ -135,7 +137,6 @@ class Cluster(object):
         except Exception:
             print 'No data in input file.'; force_error
 
-        self.filename       = filename
         self.data_matrix    = numpy.array(matrix)
         self.column_header  = column_header
         self.row_header     = row_header
@@ -285,8 +286,12 @@ class Cluster(object):
         return vmax,vmin
 
     def check_size(self):
-        self.samplesize     = len(matrix)
-        self.genenumber     = len(matrix[0])
+        if self._genes_as_rows:
+            self.samplesize     = len(self.data_matrix[0])
+            self.genenumber     = len(self.data_matrix)
+        else:
+            self.samplesize     = len(self.data_matrix)
+            self.genenumber     = len(self.data_matrix[0])
         assert len(self.gene_header) == self.genenumber
         assert len(self.sample_header) == self.samplesize
         return self.samplesize, self.genenumber
@@ -300,6 +305,10 @@ class Cluster(object):
         if log_t:
             for g in range(self.genenumber):
                 for i in range(self.samplesize):
+                    #if self.data_matrix[:,g][i] <= -1:
+                    #    print self.data_matrix[:,g][i]
+                    #if 0 < g < 3 and 0 < i < 10:
+                    #    print "gene %d sample %d: %r (%s) %r" % (g, i, self.data_matrix[:,g][i], type(self.data_matrix[:,g][i]), numpy.log2(self.data_matrix[:,g][i] + 1))
                     self.data_matrix[:,g][i] = numpy.log2(self.data_matrix[:,g][i] + 1)
 
         print "log2(FPKM + 1) transformed data. New minimum value in matrix: ", self.data_matrix.min()
@@ -357,7 +366,7 @@ class Cluster(object):
             hitlist.remove(posn)
 
         ## filter matrix with genelist:
-        filter_matrix(hitlist)
+        self.filter_matrix(hitlist)
 
     def filterData(self, mag=1, min_thresh=-1000000, max_thresh=1000000):
         """filters out any gene for which the magnitude of expression is less than mag,
@@ -366,7 +375,7 @@ class Cluster(object):
 
         # will only work if genes are columns in matrix
         revert = False
-        if self.genes_as_rows:
+        if self._genes_as_rows:
             self.invert_matrix()
             revert = True
 
@@ -392,7 +401,7 @@ class Cluster(object):
         by removing those positions"""
         # will only work if genes are columns in matrix
         revert = False
-        if self.genes_as_rows:
+        if self._genes_as_rows:
             self.invert_matrix()
             revert = True
 
@@ -417,7 +426,7 @@ class Cluster(object):
 
         # will only work if genes are columns in matrix
         revert = False
-        if self.genes_as_rows:
+        if self._genes_as_rows:
             self.invert_matrix()
             revert = True
 
@@ -493,7 +502,7 @@ class Cluster(object):
 
         # will only work if genes are columns in matrix
         revert = False
-        if self.genes_as_rows:
+        if self._genes_as_rows:
             self.invert_matrix()
             revert = True
 
@@ -683,7 +692,7 @@ def heatmap(cluster, display=True,kegg=False, go=False):
         if cluster.row_method != None:
             if len(cluster.row_header)<100: ### Don't visualize gene associations when more than 100 rows
                 axm.text(cluster.data_matrix.shape[1]-0.5, i, '  ' + cluster.row_header[idx1[i]])
-            new_row_header.append(row_header[idx1[i]])
+            new_row_header.append(cluster.row_header[idx1[i]])
         else:
             if len(cluster.row_header)<100: ### Don't visualize gene associations when more than 100 rows
                 axm.text(cluster.data_matrix.shape[1]-0.5, i, '  ' + cluster.row_header[i]) ### When not clustering rows
@@ -711,7 +720,7 @@ def heatmap(cluster, display=True,kegg=False, go=False):
                 genelistd[group] = [geneid]
 
         print "Performing GO enrichment analysis for %d groups" % (len(genelistd))
-        out_h = open(cluster.filename[:-4] + ".GO_enrichment.list", 'w')
+        out_h = open(cluster.exportPath[:-4] + ".GO_enrichment.list", 'w')
 
         out_h.write("Group GOterm P-value\n")
         go_monster = genematch.GO_maker()
@@ -742,7 +751,7 @@ def heatmap(cluster, display=True,kegg=False, go=False):
                 genelistd[group] = [geneid]
 
         print "Performing KEGG pathway enrichment analysis for %d groups" % (len(genelistd))
-        out_h = open(cluster.filename[:-4] + ".KEGG_enrichment.list", 'w')
+        out_h = open(cluster.exportPath[:-4] + ".KEGG_enrichment.list", 'w')
 
         out_h.write("Group KEGG pathway P-value\n")
 
@@ -795,7 +804,7 @@ def heatmap(cluster, display=True,kegg=False, go=False):
     axcb.set_title("colorkey")
 
 
-    pdfname = cluster.filename[:-4] + '.pdf'
+    pdfname = cluster.exportPath[:-4] + '.pdf'
     cb.set_label("Differential Expression (log2 fold)")
     ind1 = ind1[::-1] # reverse order of flat cluster leaves to match samples in txt file.
     exportFlatClusterData(pdfname, new_row_header,new_column_header,xt,ind1,ind2)
@@ -808,7 +817,7 @@ def heatmap(cluster, display=True,kegg=False, go=False):
 
     plt.savefig(pdfname)
     print 'Exporting:',pdfname
-    filename = cluster.filename[:-4]+'.png'
+    filename = cluster.exportPath[:-4]+'.png'
     plt.savefig(pdfname, dpi=200) #,dpi=100
     if display:
         plt.show()
@@ -986,7 +995,7 @@ def analyse_pca(cluster, three_dim=True):
     #q_scores = numpy.dot(numpy.sqrt(S), V.T)
     q_scores = numpy.dot(U, numpy.sqrt(S))
 
-    pp = PdfPages(cluster.filename[0:-4] + '.PCA.pdf')
+    pp = PdfPages(cluster.exportPath[0:-4] + '.PCA.pdf')
     if three_dim:   # plot a three dimensional graph:
         fig = plt.figure(1)
         ax = fig.add_subplot(111, projection='3d')
@@ -1107,7 +1116,7 @@ def bar_charts(cluster, genelist, groups=["SP", "SL06", "SL12", "SL24","SL48", "
     timepoint category specified in groups"""
 
     limits = cluster.reorder_matrix(groups)
-    pp = PdfPages(cluster.filename[0:-4] + '.bar_plots.pdf')
+    pp = PdfPages(cluster.exportPath[0:-4] + '.bar_plots.pdf')
 
     # get kegg pathways and NCBI values for each gene:
     ko_dict = genematch.cbir_to_pathway(genelist.keys())   # ko_dict = {gene:str(pathway)}
@@ -1250,10 +1259,10 @@ if __name__ == '__main__':
     parser.add_argument("-e", "--export_table", action='store_true', help="export transformed expression matrix")
     # analysis options
     parser.add_argument("--no_clustering", action='store_true', help="Turn of clustering. Performs data transformation, filtering and analysis, then exits")
-    parser.add_argument("-R", "--sample_method", type=str, dest="row_method", default='complete', help="The clustering method for samples \n(single, average, complete, etc)")
-    parser.add_argument("-G", "--gene_method", type=str, dest="column_method", default='complete', help="The clustering method for genes \n(single, average, complete, weighted, ward, centroid, etc)")
-    parser.add_argument("-r", "--sample_metric", type=str, dest="row_metric", default='correlation', help="The distance metric for samples \n(euclidean, correlation, cosine, manhattan, etc)")
-    parser.add_argument("-g", "--gene_metric", type=str, dest="column_metric", default='correlation', help="The distance metric for genes \n(euclidean, correlation, manhattan, etc)")
+    parser.add_argument("-R", "--sample_method", type=str, default='complete', help="The clustering method for samples \n(single, average, complete, etc)")
+    parser.add_argument("-G", "--gene_method", type=str, default='complete', help="The clustering method for genes \n(single, average, complete, weighted, ward, centroid, etc)")
+    parser.add_argument("-r", "--sample_metric", type=str, default='correlation', help="The distance metric for samples \n(euclidean, correlation, cosine, manhattan, etc)")
+    parser.add_argument("-g", "--gene_metric", type=str, default='correlation', help="The distance metric for genes \n(euclidean, correlation, manhattan, etc)")
     parser.add_argument("-P", "--pca", action='store_true',  help="Performs principal component analysis.")
     parser.add_argument("-a", "--anova", type=float,  help="Perform ANOVA on 10 groups, and report genes with P-value less than value specified")
     parser.add_argument("-A", "--filter_anova", type=float, help="Perform ANOVA and filter genes to keep only those with P-value less than value given")
@@ -1272,7 +1281,7 @@ if __name__ == '__main__':
     parser.add_argument("-L", "--gene_list", type=str, dest="gene_list", default=None, help="Allows provision of a file containing a list of genes for inclusion in the clustering (ie, will filter out all genes NOT in the list provided). Otherwise, all genes will be included.")
     parser.add_argument("-p", "--fpkm_max", type=float, dest="fpkm_max", default=1000000, help="Filters out genes with maximum fpkm greater than value given. Default = 1 000 000")
     parser.add_argument("-q", "--fpkm_min", type=int, dest="fpkm_min", default=10, help="Filters out genes with maximum fpkm less than value given. Default = 10")
-    parser.add_argument("-f", "--filter_off", action='store_true', help="Turns off filtering. ")
+    parser.add_argument("-f", "--filter_off", action='store_true', help="Turns off filtering based on expression value. ")
     parser.add_argument("--kill_PC1", action='store_true', help="removes first principal component")
     # data transform options
     parser.add_argument("-t", "--transform_off", action='store_true', default=False, help="Turns off log2(FPKM + 1) transformation (prior to normalisation if selected).")
@@ -1310,9 +1319,10 @@ if __name__ == '__main__':
         log_h.write( "%s\n" % (arg) )
     log_h.close()
 
-
+    print "data path is now ", data_table
+    print "filename is now", filename
     ## create matrix:
-    cluster = Cluster(data_table, firstrow=True, genes_as_rows=args.genes_as_rows, \
+    cluster = Cluster(data_table, exportPath=filename, firstrow=True, genes_as_rows=args.genes_as_rows, \
                 gene_metric=args.gene_metric, sample_metric=args.sample_metric, \
                 gene_method=args.gene_method, sample_method=args.sample_method, \
                 color_gradient=args.color_gradient)
@@ -1335,7 +1345,7 @@ if __name__ == '__main__':
         args.ttest_thresh = False
         args.ttest = False
 
-       cluster.average_matrix(groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96",\
+        cluster.average_matrix(groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96",
                                 "FP06", "FP12", "FP24","FP48", "FP96", "FL"])
 
     ## filter by magnitude, minimum values and maximum values
@@ -1350,7 +1360,7 @@ if __name__ == '__main__':
         expression_dist(cluster)
 
     ## normalise matrix
-    meanlist = cluster.normaliseData(matrix, center=not(args.centering_off), norm_var=not(args.normalise_off), log_t=not(args.transform_off), sample_norm=args.sample_norm)
+    meanlist = cluster.normaliseData(center=not(args.centering_off), norm_var=not(args.normalise_off), log_t=not(args.transform_off), sample_norm=args.sample_norm)
 
     ## show distribution after normalisation
     if args.distribution:
@@ -1400,7 +1410,7 @@ if __name__ == '__main__':
                 t_list.append(gene)
         out_h.close()
         print "Filtering matrix to %d genes with t-test P-value less than %.2f" % (len(t_list),args.ttest_thresh)
-        matrix, column_header, row_header = filter_genes(matrix, column_header, row_header, t_list)
+        cluster.filter_genes(t_list)
     elif args.t_test:
         t_dict = find_degs(cluster)
         out_h = open(filename[:-4] + ".t_test.list", 'w')
@@ -1420,11 +1430,11 @@ if __name__ == '__main__':
         cluster.invert_matrix()
 
     ## perform hierarchical clustering
-    if cluster.gene_number > 1 and args.no_clustering is False:
+    if cluster.genenumber > 1 and args.no_clustering is False:
         try:
             new_column_header, groups = heatmap(cluster, display=not(args.display_off), kegg=args.kegg, go=args.go_enrichment)
         except Exception as inst:
-            print 'Error using %s ... trying euclidean instead\n%s' % (args.row_metric, inst)
+            print 'Error using %s ... trying euclidean instead\n%s' % (args.gene_metric, inst)
 
             cluster.gene_metric = 'euclidean'
             cluster.sample_metric = 'euclidean'
