@@ -279,8 +279,8 @@ class Cluster(object):
         vmax=self.data_matrix.max()
         vmin=self.data_matrix.min()
 
-        if vmax * vmin > 0:     # ie number range spans +ve and -ve
-            vmax = max([vmax,abs(vmin)])
+        if vmax * vmin < 0:     # ie number range spans +ve and -ve
+            vmax = max([vmax, abs(vmin)])
             vmin = -1*vmax
 
         return vmax,vmin
@@ -301,7 +301,8 @@ class Cluster(object):
     def normaliseData(self, center=True, norm_var=True, log_t=True, sample_norm=False):
         "center, normalize and/or log transform the array x"
 
-        print "\n\nInitial minimum value in matrix: ", self.data_matrix.min()
+        print "\n\nNormalising data according to input parameters."
+        print "Initial value range in matrix:       %s - %-4.3f" % ('{0: 3.3f}'.format(self.data_matrix.min()), self.data_matrix.max())
         if log_t:
             for g in range(self.genenumber):
                 for i in range(self.samplesize):
@@ -311,43 +312,42 @@ class Cluster(object):
                     #    print "gene %d sample %d: %r (%s) %r" % (g, i, self.data_matrix[:,g][i], type(self.data_matrix[:,g][i]), numpy.log2(self.data_matrix[:,g][i] + 1))
                     self.data_matrix[:,g][i] = numpy.log2(self.data_matrix[:,g][i] + 1)
 
-        print "log2(FPKM + 1) transformed data. New minimum value in matrix: ", self.data_matrix.min()
+            print "log2(FPKM + 1) transformed. New value range: %-4.3f - %-4.3f" % (self.data_matrix.min(), self.data_matrix.max())
 
         meanlist = []   # to store for later re-adjustment of matrix
         if center and sample_norm:
-            print "centering data for each sample to have mean 0"
             for s in range(self.samplesize):
                 ave_g = numpy.mean(self.data_matrix[s])
                 for i in range(self.genenumber):
                     self.data_matrix[s,i] = self.data_matrix[s,i] - ave_g
                     meanlist.append(ave_g)
         elif center:
-            print "Centering data for each gene to have mean 0"
+            # Centering data for each gene to have mean 0:
             for g in range(self.genenumber):
                 # center the data so it has mean = 0 for each gene:
                 ave_g = numpy.mean(self.data_matrix[:,g])
                 for i in range(self.samplesize):
                     self.data_matrix[:,g][i] = self.data_matrix[:,g][i] - ave_g
                     meanlist.append(ave_g)
-        print "new minimum value in matrix: ", self.data_matrix.min()
+            print "Centered data. New value range:      %-4.3f - %-4.3f" % (self.data_matrix.min(), self.data_matrix.max())
 
         if norm_var and sample_norm:
-            print "Normalising data so each sample has standard deviation of 1"
+            # Normalising data so each *sample* has standard deviation of 1:
             for s in range(self.samplesize):
                 #sum_sq = sum([ a ** 2 for a in (x[m])])
                 stdev = numpy.std(self.data_matrix[s])
                 for i in range(self.genenumber):
                     self.data_matrix[s,i] = self.data_matrix[s,i] / stdev
         elif norm_var:
-            print "Normalising data so each gene has standard deviation of 1"
+            # Normalising data so each *gene* has standard deviation of 1"
             for g in range(self.genenumber):
                 stdev = numpy.std(self.data_matrix[:,g])
                 for i in range(self.samplesize):
                     self.data_matrix[:,g][i] = self.data_matrix[:,g][i] / stdev # dividing by variance gives identical result
+            print "Normalised St Dev. New value range:  %-4.3f - %-4.3f" % (self.data_matrix.min(), self.data_matrix.max())
+        print "Final value range in matrix:         %s - %-4.3f" % ('{0: 3.3f}'.format(self.data_matrix.min()), self.data_matrix.max())
 
-        print "new minimum value in matrix: ", self.data_matrix.min()
-
-        return meanlist # it is not nessary to return x, since it is modifying x
+        return meanlist
 
     def filter_genes(self, genelist):
         """takes a file and extracts the genes in the col_num specified column,
@@ -586,6 +586,7 @@ def heatmap(cluster, display=True,kegg=False, go=False):
 
     ### Scale the max and min colors so that 0 is white/black
     vmax, vmin = cluster.getColorRange()
+    print "Vmax: %.2f\tVmin: %.2f" % (vmax, vmin)
     norm = mpl.colors.Normalize(vmin/2, vmax/2) ### adjust the max and min to scale these colors
 
     ### Scale the Matplotlib window size
@@ -1319,8 +1320,6 @@ if __name__ == '__main__':
         log_h.write( "%s\n" % (arg) )
     log_h.close()
 
-    print "data path is now ", data_table
-    print "filename is now", filename
     ## create matrix:
     cluster = Cluster(data_table, exportPath=filename, firstrow=True, genes_as_rows=args.genes_as_rows, \
                 gene_metric=args.gene_metric, sample_metric=args.sample_metric, \
