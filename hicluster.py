@@ -64,8 +64,14 @@ class Cluster(object):
 
         self.gene_metric    = gene_metric
         self.sample_metric  = sample_metric
-        self.gene_method    = gene_method
-        self.sample_method  = sample_method
+        if gene_method == 'none':
+            self.gene_method = None
+        else:
+            self.gene_method    = gene_method
+        if sample_method == 'none':
+            self.sample_method = None
+        else:
+            self.sample_method  = sample_method
 
         self._genes_as_rows = genes_as_rows
         self.refresh_headers()
@@ -1045,18 +1051,18 @@ def expression_dist(cluster, max_x=500, min_x=0, histo=False):
         plt.setp(labels, rotation=90)
         plt.show()
 
-def find_degs(x, column_header, row_header, group1="_F", group2="_S"):
+def find_degs(cluster, group1="_F", group2="_S"):
     "finds DEGs using t-test and returns dictionary { Gene:P-value }"
 
-    matrix_reord, column_header, reord_row_header, limits = reorder_matrix(x, column_header, row_header, groups=["_F","_S"])
-    n = len(matrix_reord[0]); m = len(matrix_reord) # m  samples, n  genes
+    limits = cluster.reorder_matrix(groups=["_F","_S"])
 
     print "Performing t-test"
     limit = limits[0]
     t_dict = {}
     print "limit for t-test",limit
-    for g in range(n):
-        t_val, p_val = stats.ttest_ind(matrix_reord[:limit,g], matrix_reord[limit:,g])
+    for g in range(cluster.genenumber):
+        t_val, p_val = stats.ttest_ind(cluster.data_matrix[:limit,g],\
+                            cluster.data_matrix[limit:,g])
         t_dict[column_header[g]] = p_val
 
     return t_dict
@@ -1096,14 +1102,12 @@ def degs_anova(cluster, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96", "FL
 
     return A_dict
 
-def bar_charts(x, column_header, row_header, genelist, filename, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96", "FL", "FP06", "FP12", "FP24","FP48", "FP96" ]):
+def bar_charts(cluster, genelist, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96", "FL", "FP06", "FP12", "FP24","FP48", "FP96" ]):
     """creates bar plots of all genes in genelist, showing mean and error for each
     timepoint category specified in groups"""
 
-    matrix_reord, column_header, reord_row_header, limits = reorder_matrix(x, \
-        column_header, row_header, groups)
-    n = len(matrix_reord[0]); m = len(matrix_reord)   # m  samples, n  genes
-    pp = PdfPages(filename[0:-4] + '.bar_plots.pdf')
+    limits = cluster.reorder_matrix(groups)
+    pp = PdfPages(cluster.filename[0:-4] + '.bar_plots.pdf')
 
     # get kegg pathways and NCBI values for each gene:
     ko_dict = genematch.cbir_to_pathway(genelist.keys())   # ko_dict = {gene:str(pathway)}
@@ -1114,7 +1118,7 @@ def bar_charts(x, column_header, row_header, genelist, filename, groups=["SP", "
         # get gene details for later use:
         ignore, kotermdic = genematch.cbir_to_kegg([gene],reversedic=True)
 
-        anova = degs_anova(x, column_header, row_header, onegene=gene)
+        anova = degs_anova(cluster, onegene=gene)
 
         try:
             koterm = kotermdic[gene]
@@ -1130,18 +1134,18 @@ def bar_charts(x, column_header, row_header, genelist, filename, groups=["SP", "
         else:
             continue
         gm = [groups[0]] * (limits[0])    # matrix of group names for Tukey's post hoc
-        v = [numpy.average(matrix_reord[:limits[0],pos])]   # averages
-        se = [numpy.std(matrix_reord[:limits[0],pos])/numpy.sqrt(limits[0]+1)]   #SEM
+        v = [numpy.average(cluster.data_matrix[:limits[0],pos])]   # averages
+        se = [numpy.std(cluster.data_matrix[:limits[0],pos])/numpy.sqrt(limits[0]+1)]   #SEM
         for i in range(len(groups)-1):
             gm += [groups[i+1]] * (limits[i+1]-limits[i])
-            v.append(numpy.average(matrix_reord[limits[i]:limits[i + 1],pos]))
-            se.append(numpy.std(matrix_reord[limits[i]:limits[i + 1],pos])/numpy.sqrt(limits[i+1]-limits[i]+1))
+            v.append(numpy.average(cluster.data_matrix[limits[i]:limits[i + 1],pos]))
+            se.append(numpy.std(cluster.data_matrix[limits[i]:limits[i + 1],pos])/numpy.sqrt(limits[i+1]-limits[i]+1))
 
         # calculate tukey's post-hoc values and plot:
         tfig, taxes = plt.subplots()
 
         try:
-            posthoc = pairwise_tukeyhsd(matrix_reord[:,pos],gm)
+            posthoc = pairwise_tukeyhsd(cluster.data_matrix[:,pos],gm)
         except Exception as inst:
             print "Tukey calculation error - check that you have >1 value for each category."
             print inst
@@ -1388,7 +1392,7 @@ if __name__ == '__main__':
     ## t-test analysis
     if args.ttest_thresh:
         t_list = []
-        t_dict = find_degs(matrix, column_header, row_header)
+        t_dict = find_degs(cluster)
         out_h = open(filename[:-4] + ".t_test.list", 'w')
         for gene in t_dict:
             if t_dict[gene] <= args.ttest_thresh:
@@ -1398,7 +1402,7 @@ if __name__ == '__main__':
         print "Filtering matrix to %d genes with t-test P-value less than %.2f" % (len(t_list),args.ttest_thresh)
         matrix, column_header, row_header = filter_genes(matrix, column_header, row_header, t_list)
     elif args.t_test:
-        t_dict = find_degs(matrix, column_header, row_header)
+        t_dict = find_degs(cluster)
         out_h = open(filename[:-4] + ".t_test.list", 'w')
         for gene in t_dict:
             if t_dict[gene] <= args.t_test:
@@ -1409,30 +1413,25 @@ if __name__ == '__main__':
     if args.bar_charts:
         genelist = make_a_list(args.bar_charts, col_num=0)
         print "Constructing bar charts for %d genes: %s" % ( len(genelist), " ".join(genelist))
-        bar_charts(matrix, column_header, row_header, genelist, filename)
+        bar_charts(cluster, genelist)
 
     ## re-orient for publication purposes
     if args.display_reverse:
-        matrix = numpy.transpose(matrix)
-        tempcol = column_header
-        column_header = row_header
-        row_header = tempcol
+        cluster.invert_matrix()
 
     ## perform hierarchical clustering
-    if args.row_method == 'flat':
-        args.row_method = None
-    if len(matrix)>0 and args.no_clustering is False:
+    if cluster.gene_number > 1 and args.no_clustering is False:
         try:
-            new_column_header, groups = heatmap(matrix, row_header, column_header, args.row_method, args.column_method, args.row_metric, args.column_metric, args.color_gradient, filename, display=not(args.display_off), kegg=args.kegg, go=args.go_enrichment)
-        except Exception:
-            print 'Error using %s ... trying euclidean instead' % args.row_metric
+            new_column_header, groups = heatmap(cluster, display=not(args.display_off), kegg=args.kegg, go=args.go_enrichment)
+        except Exception as inst:
+            print 'Error using %s ... trying euclidean instead\n%s' % (args.row_metric, inst)
 
+            cluster.gene_metric = 'euclidean'
+            cluster.sample_metric = 'euclidean'
+            cluster.refresh_headers()
             try:
-                new_column_header, groups = heatmap(matrix, row_header, column_header, args.row_method, args.column_method, 'euclidean', 'euclidean', args.color_gradient, filename, display=not(args.display_off), kegg=args.kegg, go=args.go_enrichment)
+                new_column_header, groups = heatmap(cluster, display=not(args.display_off), kegg=args.kegg, go=args.go_enrichment)
             except IOError:
                 print 'Error with clustering encountered'
                 new_column_header = ['']
                 groups = ['']
-
-
-
