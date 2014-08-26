@@ -177,7 +177,7 @@ class Cluster(object):
     def invert_matrix(self):
         self.data_matrix = numpy.transpose(self.data_matrix)
         tempcol = self.column_header
-        temprow = self.row_head
+        temprow = self.row_header
         tempcolmeth = self.column_method
         temprowmeth = self.row_method
         tempcolmet = self.column_metric
@@ -411,11 +411,12 @@ class Cluster(object):
         for gene in hitlist[::-1]:
             self.gene_header.pop(gene)
 
+        self.column_header = self.gene_header
         self.data_matrix = y
         self.samplesize, self.genenumber = self.check_size()
         print "there are now %d genes and %d samples" % (self.genenumber, self.samplesize)
 
-        self.column_header = self.gene_header
+
 
         # if matrix was inverted for gene removal, restore to its previous orientation:
         if revert:
@@ -525,9 +526,9 @@ class Cluster(object):
         if revert:
             self.invert_matrix()
 
-    def export(self, filename, new_column_header, new_row_header, xt):
+    def export(self):
         "Saves datatable and columns to a text file"
-        nfilename = self.filename[:-4] + '.data.tbl'
+        nfilename = self.exportPath[:-4] + '.data.tbl'
 
         export_text = open(nfilename,'w')
         column_header = '\t'.join(['gene']+self.column_header)+'\n' ### format column-names for export
@@ -556,7 +557,7 @@ class Cluster(object):
         newarray = numpy.array(biglist)
         t_array = newarray.transpose()
 
-        newfile_h = open(self.filename[:-4] + '.data.trans.tbl' , 'w')
+        newfile_h = open(self.exportPath[:-4] + '.data.trans.tbl' , 'w')
         for row in t_array:
             newfile_h.write("\t".join(row) + "\n")
         newfile_h.close()
@@ -1080,6 +1081,13 @@ def find_degs(cluster, group1="_F", group2="_S"):
 def degs_anova(cluster, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96", "FL", "FP06", "FP12", "FP24","FP48", "FP96" ], onegene=False):
     "finds DEGs using ANOVA and returns dictionary { Gene:P-value }"
 
+    # will only work if genes are columns in matrix
+    revert = False
+    if self._genes_as_rows:
+        self.invert_matrix()
+        revert = True
+
+
     limits = cluster.reorder_matrix(groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96","FP06", "FP12", "FP24","FP48", "FP96", "FL"])
 
     A_dict = {}
@@ -1109,6 +1117,10 @@ def degs_anova(cluster, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96", "FL
                 cluster.data_matrix[limits[8]:limits[9],g], cluster.data_matrix[limits[9]:limits[10],g],\
                 cluster.data_matrix[limits[10]:limits[11],g])
             A_dict[cluster.gene_header[g]] = p_val
+
+    # if matrix was inverted for gene removal, restore to its previous orientation:
+    if revert:
+        self.invert_matrix()
 
     return A_dict
 
