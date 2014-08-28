@@ -31,7 +31,7 @@ import scipy.cluster.hierarchy as sch
 import scipy.spatial.distance as dist
 from statsmodels.stats.multicomp import pairwise_tukeyhsd
 
-import genematch
+from genomepy import genematch
 
 ################# Perform the hierarchical clustering #################
 ###  heatmap function updated from original code hierarchical_clustering.py
@@ -99,6 +99,11 @@ class Cluster(object):
             self.cmap = plt.cm.coolwarm
 
         self.exportPath = exportPath
+
+    def __str__(self):
+        return "Data matrix of %d Samples and %d Genes" % (self.samplesize, self.genenumber)
+
+    __rep__ = __str__
 
     def importData(self, filename, first_row=True):
         start_time = time.time()
@@ -1083,8 +1088,8 @@ def degs_anova(cluster, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96", "FL
 
     # will only work if genes are columns in matrix
     revert = False
-    if self._genes_as_rows:
-        self.invert_matrix()
+    if cluster._genes_as_rows:
+        cluster.invert_matrix()
         revert = True
 
 
@@ -1109,7 +1114,7 @@ def degs_anova(cluster, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96", "FL
         print "Performing ANOVA for %d genes" % (cluster.genenumber)
         #print "limits for anova:",limits
         for g in range(cluster.genenumber):
-            f_val, p_val = stats.f_oneway(matrix_reord[:limits[0],g],\
+            f_val, p_val = stats.f_oneway(cluster.data_matrix[:limits[0],g],\
                 cluster.data_matrix[limits[0]:limits[1],g], cluster.data_matrix[limits[1]:limits[2],g],\
                 cluster.data_matrix[limits[2]:limits[3],g], cluster.data_matrix[limits[3]:limits[4],g],\
                 cluster.data_matrix[limits[4]:limits[5],g], cluster.data_matrix[limits[5]:limits[6],g],\
@@ -1120,7 +1125,7 @@ def degs_anova(cluster, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96", "FL
 
     # if matrix was inverted for gene removal, restore to its previous orientation:
     if revert:
-        self.invert_matrix()
+        cluster.invert_matrix()
 
     return A_dict
 
@@ -1151,8 +1156,8 @@ def bar_charts(cluster, genelist, groups=["SP", "SL06", "SL12", "SL24","SL48", "
         godesc = "".join([ "%s %s %s\n" % (g, genegos[g][1], genegos[g][0]) for g in genegos ])
 
         # calculate mean/SEM...
-        if gene in column_header:
-            pos = column_header.index(gene)
+        if gene in cluster.column_header:
+            pos = cluster.column_header.index(gene)
         else:
             continue
         gm = [groups[0]] * (limits[0])    # matrix of group names for Tukey's post hoc
