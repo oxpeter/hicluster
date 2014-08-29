@@ -17,6 +17,7 @@ import time
 import sys, os, re
 import getopt
 import argparse
+from operator import itemgetter
 
 import numpy
 import matplotlib.pyplot as plt
@@ -189,7 +190,7 @@ class Cluster(object):
         temprowmet = self.row_metric
 
         self.column_header  = temprow
-        self.row_head       = tempcol
+        self.row_header     = tempcol
         self.column_method  = temprowmeth
         self.row_method     = tempcolmeth
         self.column_metric  = temprowmet
@@ -364,7 +365,7 @@ class Cluster(object):
             try:
                 keeplist.append(self.gene_header.index(gene))
             except:     # some columns will be headers that would cause errors.
-                pass
+                print gene, "not found. Not keeping."
 
         hitlist = range(len(self.gene_header))
         for posn in keeplist: # will be the inverse of keeplist
@@ -418,6 +419,7 @@ class Cluster(object):
 
         self.column_header = self.gene_header
         self.data_matrix = y
+        print "The shape of the new matrix is", numpy.shape(y)
         self.samplesize, self.genenumber = self.check_size()
         print "there are now %d genes and %d samples" % (self.genenumber, self.samplesize)
 
@@ -468,6 +470,7 @@ class Cluster(object):
             try:
                 if verbose:
                     print pattern, namelist[pattern]
+                    print poslist[pattern]
                 grouporder += poslist[pattern]
                 boundarystone += len(poslist[pattern])
             except KeyError:
@@ -481,16 +484,19 @@ class Cluster(object):
                 grouporder += poslist['unassigned']
                 boundarystone += len(poslist['unassigned'])
             except KeyError:
-                pass
+                print "unidentified KeyError has occurred line 486"
             limits.append(boundarystone)
 
 
+        matrix_reord = self.data_matrix[grouporder,:]
+        row_header_new = [self.sample_header[i] for i in grouporder]
+
         if verbose:
+            print self.sample_header
             print "grouporder       :", grouporder
+            print row_header_new
             print "limits (boundary):", limits
 
-        matrix_reord = self.data_matrix[grouporder,:]
-        row_header_new = [x for (y,x) in sorted(zip(grouporder,self.sample_header))]
 
         self.data_matrix = matrix_reord
         self.row_header = row_header_new
@@ -566,6 +572,16 @@ class Cluster(object):
         for row in t_array:
             newfile_h.write("\t".join(row) + "\n")
         newfile_h.close()
+
+    def get_values(self, geneid):
+        gindex = self.gene_header.index(geneid)
+        if self._genes_as_rows:
+            values = self.data_matrix[gindex]
+        else:
+            values = self.data_matrix[:,gindex]
+        print geneid
+        for sample, value in zip(self.sample_header, values):
+            print "%-25s %.2f" % (sample, value)
 
 
 ####################################################################################
@@ -832,6 +848,36 @@ def heatmap(cluster, display=True,kegg=False, go=False):
     # returns values to allow group-specific KEGG enrichment analysis
     return new_column_header, ind2
 
+def find_nearest_neighbours(cluster, geneobj, numberofneighbours=10):
+    "For a given gene, return the closest neighbours by distance"
+
+    # because the distance calculation takes the longest time,
+    # lists are processed within the function to make the pdist calculation only once
+    genelist = make_a_list(geneobj)
+    results_dict ={}
+
+    # calculate distances:
+    if cluster._genes_as_rows:
+        dists    = dist.pdist(cluster.data_matrix)
+    else:
+        dists    = dist.pdist(cluster.data_matrix.T)
+    sq_dists = dist.squareform(dists)
+
+    for geneid in genelist:
+        if geneid in cluster.gene_header:
+            query    = cluster.gene_header.index(geneid)
+            top10    = sorted(zip(sq_dists[query], cluster.gene_header),
+                              key=itemgetter(0)
+                              )[:numberofneighbours]
+
+            # calculate the max distance for nearest neighbours cf w all distances
+            neighdists = [ x[0] for x in top10 ]
+            z =  (max(neighdists) - numpy.mean(sorted(sq_dists[query])[1:]))/float(numpy.std(sorted(sq_dists[query])[1:]))
+            p_value = stats.norm.cdf(z)
+            stat_str =  "Max(neigh): %.3f\tMean(data): %.3f\tstdev(data): %.4f\tz: %.3f\tP: %.5f" % (max(neighdists), numpy.mean(sq_dists[query]), float(numpy.std(sq_dists[query])), z, p_value)
+            results_dict[geneid] = [ x[1] for x in top10 ], stat_str
+
+    return results_dict
 
 ################# Export the flat cluster data #####################################
 
@@ -1094,7 +1140,6 @@ def degs_anova(cluster, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96", "FL
 
 
     limits = cluster.reorder_matrix(groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96","FP06", "FP12", "FP24","FP48", "FP96", "FL"])
-
     A_dict = {}
 
     if onegene:
@@ -1122,6 +1167,7 @@ def degs_anova(cluster, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96", "FL
                 cluster.data_matrix[limits[8]:limits[9],g], cluster.data_matrix[limits[9]:limits[10],g],\
                 cluster.data_matrix[limits[10]:limits[11],g])
             A_dict[cluster.gene_header[g]] = p_val
+
 
     # if matrix was inverted for gene removal, restore to its previous orientation:
     if revert:
@@ -1288,6 +1334,8 @@ if __name__ == '__main__':
     parser.add_argument("-S", "--filter_t", type=float, dest="ttest_thresh", help="Perform student's t-test and filter genes to keep only those with P-value less than value given")
     parser.add_argument("-K", "--kegg", type=float, help="Perform KEGG pathway enrichment analysis on gene clusters using specified p-value")
     parser.add_argument("-E", "--go_enrichment", action='store_true', help="Perform GO term enrichment analysis on gene clusters")
+    parser.add_argument("--neighbours", type=str, help="returns a list of the N closest neighbours to specified genes.")
+    parser.add_argument("-N", "--num_neighbours", type=int, default=10, help="specify the number of nearest neighbours to return. Default is 10.")
     # viewing options
     parser.add_argument("-c", "--color_gradient", type=str, dest="color_gradient", default='red_white_blue', help="The colour scheme \n(red_white_blue, red_black_sky, red_black_blue, \nred_black_green, yellow_black_blue, seismic, \ngreen_white_purple, coolwarm)")
     parser.add_argument("-d", "--distribution", action='store_true', default=False, help="Shows FPKM distribution of each sample before and after normalisation")
@@ -1433,6 +1481,19 @@ if __name__ == '__main__':
         for gene in t_dict:
             if t_dict[gene] <= args.t_test:
                 out_h.write( "%-12s P-value: %.4f\n" % (gene, t_dict[gene]) )
+        out_h.close()
+
+    ## report nearest neighbours:
+    print "\nCalculating nearest neighbours..."
+    if args.neighbours:
+        # +1 to argument, since the first neighbour returned is the gene itself.
+        neighbour_dict = find_nearest_neighbours(cluster, args.neighbours,
+                                        numberofneighbours=args.num_neighbours + 1)
+
+        out_h = open(filename[:-4] + ".nearest_neighbours.list", 'w')
+        for neigh in neighbour_dict:
+            t_neighbours, stat_str = neighbour_dict[neigh]
+            out_h.write("## %s\n%s\n%s\n\n" % (neigh, stat_str, ",".join(t_neighbours[1:])) )
         out_h.close()
 
     ## bar-chart construction:
