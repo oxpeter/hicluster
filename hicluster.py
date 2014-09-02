@@ -99,6 +99,7 @@ class Cluster(object):
         if color_gradient == 'coolwarm':
             self.cmap = plt.cm.coolwarm
 
+        self.averaged = False
         self.exportPath = exportPath
 
     def __str__(self):
@@ -310,13 +311,15 @@ class Cluster(object):
         print "\n\nNormalising data according to input parameters."
         print "Initial value range in matrix:       %s - %-4.3f" % ('{0: 3.3f}'.format(self.data_matrix.min()), self.data_matrix.max())
         if log_t:
+            count = 0
+            k = self.data_matrix.min()
             for g in range(self.genenumber):
                 for i in range(self.samplesize):
                     #if self.data_matrix[:,g][i] <= -1:
                     #    print self.data_matrix[:,g][i]
                     #if 0 < g < 3 and 0 < i < 10:
                     #    print "gene %d sample %d: %r (%s) %r" % (g, i, self.data_matrix[:,g][i], type(self.data_matrix[:,g][i]), numpy.log2(self.data_matrix[:,g][i] + 1))
-                    self.data_matrix[:,g][i] = numpy.log2(self.data_matrix[:,g][i] + 1)
+                    self.data_matrix[:,g][i] = numpy.log2(self.data_matrix[:,g][i] - k + 1)
 
             print "log2(FPKM + 1) transformed. New value range: %-4.3f - %-4.3f" % (self.data_matrix.min(), self.data_matrix.max())
 
@@ -369,8 +372,13 @@ class Cluster(object):
 
         hitlist = range(len(self.gene_header))
         for posn in keeplist: # will be the inverse of keeplist
-            hitlist.remove(posn)
-
+            err_ct = 0
+            try:
+                hitlist.remove(posn)
+            except Exception as inst:
+                err_ct += 1
+        if err_ct > 0:
+            print "There were %d errors encountered. Last error:\n" % (err_ct, inst)
         ## filter matrix with genelist:
         self.filter_matrix(hitlist)
 
@@ -536,6 +544,7 @@ class Cluster(object):
         # if matrix was inverted for gene removal, restore to its previous orientation:
         if revert:
             self.invert_matrix()
+        self.averaged = True
 
     def export(self):
         "Saves datatable and columns to a text file"
@@ -1142,6 +1151,11 @@ def degs_anova(cluster, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96", "FL
     limits = cluster.reorder_matrix(groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96","FP06", "FP12", "FP24","FP48", "FP96", "FL"])
     A_dict = {}
 
+    """
+    # try this code for flexible group size:
+    for g in range(self.genenumber):
+        exvalues = [cluster.datamatrix[limits[x]:limits[x+1],g] for x in range(len(limits) - 1)]
+    """
     if onegene:
         try:
             g = cluster.gene_header.index(onegene)
@@ -1175,12 +1189,12 @@ def degs_anova(cluster, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96", "FL
 
     return A_dict
 
-def bar_charts(cluster, genelist, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96", "FL", "FP06", "FP12", "FP24","FP48", "FP96" ]):
+def bar_charts(cluster, genelist, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96", "FL", "FP06", "FP12", "FP24","FP48", "FP96" ], postfix=''):
     """creates bar plots of all genes in genelist, showing mean and error for each
     timepoint category specified in groups"""
 
     limits = cluster.reorder_matrix(groups)
-    pp = PdfPages(cluster.exportPath[0:-4] + '.bar_plots.pdf')
+    pp = PdfPages(cluster.exportPath[0:-4] + postfix + '.bar_plots.pdf')
 
     # get kegg pathways and NCBI values for each gene:
     ko_dict = genematch.cbir_to_pathway(genelist.keys())   # ko_dict = {gene:str(pathway)}
@@ -1269,6 +1283,59 @@ def bar_charts(cluster, genelist, groups=["SP", "SL06", "SL12", "SL24","SL48", "
         """
     pp.close()
 
+def expression_peaks(cluster, magnitude, group1 = [ "SP", "SL06", "SL12", "SL24","SL48", "SL96" ], group2 = [ "FL", "FP06", "FP12", "FP24","FP48", "FP96" ]):
+    """ Finds timepoint with max expression, then Checks adjacent timepoints to see if
+    values lie with 2-50% of max expression value. Returns all genes that fit this
+    pattern.
+    Assumes first timepoint in each group is a control
+    """
+    if cluster.averaged == False:
+        cluster.average_matrix(group1 + group2)
+    print cluster.sample_header
+    peaklist = []
+
+    for gene in range(cluster.genenumber):
+        # for group 1:
+        datalist = list(cluster.data_matrix[:,gene])
+        maxexpression = max(datalist[:len(group1)])
+        maxposn = datalist.index(maxexpression)
+
+        # check fold change is sufficient:
+        if maxexpression >= magnitude * datalist[0]:
+            # check adjacent peaks are not too big:
+            if maxposn == len(group1) - 1:
+                if (maxexpression * 0.02 < datalist[maxposn - 1] < maxexpression * 0.5):
+                    peaklist.append(cluster.gene_header[gene])
+
+            elif (maxexpression * 0.02 < datalist[maxposn - 1] < maxexpression * 0.5) and \
+                    (maxexpression * 0.02 < datalist[maxposn + 1] < maxexpression * 0.5):
+
+                peaklist.append(cluster.gene_header[gene])
+
+        # for group 2:
+        maxexpression = max(datalist[len(group1):])
+        maxposn = datalist.index(maxexpression)
+
+        # check fold change is sufficient for reciprocal swap:
+        if maxexpression >= magnitude * datalist[len(group1)]:
+            # check adjacent peaks are not too big:
+            try:
+                if maxposn == len(group1+group2) - 1:
+                    if (maxexpression * 0.02 < datalist[maxposn - 1] < maxexpression * 0.5):
+                        peaklist.append(cluster.gene_header[gene])
+
+                elif (maxexpression * 0.02 < datalist[maxposn - 1] < maxexpression * 0.5) and \
+                           (maxexpression * 0.02 < datalist[maxposn + 1] < maxexpression * 0.5):
+
+                    peaklist.append(cluster.gene_header[gene])
+            except IndexError as inst:
+                print inst
+                print datalist
+                print "Max is %.3f at position %d" % (maxexpression, maxposn)
+
+    print len(peaklist), "significant peaks found."
+    return peaklist
+
 ################# Miscellaneous methods #############################################
 
 def make_a_list(geneobj, col_num=0):
@@ -1349,6 +1416,7 @@ if __name__ == '__main__':
     parser.add_argument("-q", "--fpkm_min", type=int, dest="fpkm_min", default=10, help="Filters out genes with maximum fpkm less than value given. Default = 10")
     parser.add_argument("-f", "--filter_off", action='store_true', help="Turns off filtering based on expression value. ")
     parser.add_argument("--kill_PC1", action='store_true', help="removes first principal component")
+    parser.add_argument("--expression_peaks", type=float, help="finds genes with singular timepoint peaks of magnitude n greater than control timepoint")
     # data transform options
     parser.add_argument("-t", "--transform_off", action='store_true', default=False, help="Turns off log2(FPKM + 1) transformation (prior to normalisation if selected).")
     parser.add_argument("-n", "--normalise_off", action='store_true', default=False, help="Turns off normalisation. Normalises by dividing by the standard deviation.")
@@ -1401,17 +1469,6 @@ if __name__ == '__main__':
         print "Filtering to keep %d genes" % len(genelist)
         cluster.filter_genes(genelist)
 
-    ## display average values for each group instead of individual values
-    if args.show_averages is True:
-        # turn off stats options (which are now irrelevant and will only cause errors:
-        args.filter_anova = False
-        args.anova = False
-        args.ttest_thresh = False
-        args.ttest = False
-
-        cluster.average_matrix(groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96",
-                                "FP06", "FP12", "FP24","FP48", "FP96", "FL"])
-
     ## filter by magnitude, minimum values and maximum values
     if not args.filter_off:
         cluster.filterData(mag=args.filter, min_thresh=args.fpkm_min, max_thresh=args.fpkm_max)
@@ -1433,6 +1490,17 @@ if __name__ == '__main__':
     ## export transformed data table:
     if args.export_table:
         cluster.export()
+
+    if args.expression_peaks:
+        print "\nChecking for expression peaks..."
+        peaklist = expression_peaks(cluster, args.expression_peaks)
+        cluster.filter_genes(peaklist)
+        print "%d genes with expression peaks found" % (cluster.genenumber)
+        out_h = open(filename[:-4] + ".expression_peaks.list", 'w')
+        for gene in peaklist:
+            out_h.write( "%s\n" % (gene) )
+        out_h.close()
+
 
     ####### ANALYSIS OPTIONS ##############
 
@@ -1484,8 +1552,9 @@ if __name__ == '__main__':
         out_h.close()
 
     ## report nearest neighbours:
-    print "\nCalculating nearest neighbours..."
+
     if args.neighbours:
+        print "\nCalculating nearest neighbours..."
         # +1 to argument, since the first neighbour returned is the gene itself.
         neighbour_dict = find_nearest_neighbours(cluster, args.neighbours,
                                         numberofneighbours=args.num_neighbours + 1)
@@ -1502,10 +1571,18 @@ if __name__ == '__main__':
         print "Constructing bar charts for %d genes: %s" % ( len(genelist), " ".join(genelist))
         bar_charts(cluster, genelist)
 
-    ## re-orient for publication purposes
+    ### re-format for publication purposes:
+    ## transpose so genes are on y-axis:
     if args.display_reverse:
         cluster.invert_matrix()
 
+    ## display average values for each group instead of individual values
+    if args.show_averages is True:
+        cluster.average_matrix(groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96",
+                                "FL", "FP06", "FP12", "FP24","FP48", "FP96"])
+
+
+    print cluster.sample_header
     ## perform hierarchical clustering
     if cluster.genenumber > 1 and args.no_clustering is False:
         try:
