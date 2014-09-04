@@ -33,6 +33,7 @@ import scipy.spatial.distance as dist
 from statsmodels.stats.multicomp import pairwise_tukeyhsd
 
 from genomepy import genematch
+import progressbar              # from Nilton Volpato
 
 ################# Perform the hierarchical clustering #################
 ###  heatmap function updated from original code hierarchical_clustering.py
@@ -321,7 +322,7 @@ class Cluster(object):
                     #    print "gene %d sample %d: %r (%s) %r" % (g, i, self.data_matrix[:,g][i], type(self.data_matrix[:,g][i]), numpy.log2(self.data_matrix[:,g][i] + 1))
                     self.data_matrix[:,g][i] = numpy.log2(self.data_matrix[:,g][i] - k + 1)
 
-            print "log2(FPKM + 1) transformed. New value range: %-4.3f - %-4.3f" % (self.data_matrix.min(), self.data_matrix.max())
+            print "log2(FPKM + k) transformed. New range: %-4.3f - %-4.3f" % (self.data_matrix.min(), self.data_matrix.max())
 
         meanlist = []   # to store for later re-adjustment of matrix
         if center and sample_norm:
@@ -381,6 +382,23 @@ class Cluster(object):
             print "There were %d errors encountered. Last error:\n" % (err_ct, inst)
         ## filter matrix with genelist:
         self.filter_matrix(hitlist)
+
+    def remove_sample(self, sample):
+        posn = self.sample_header.index(sample)
+
+        if self._genes_as_rows:
+            self.data_matrix = numpy.delete(self.data_matrix, posn, 1)
+            print self.sample_header
+            print self.column_header
+            s1 = self.sample_header.pop(posn) # sample_header and column_header point to
+            # the same object. Removing the name from one removes it from both!
+
+
+        else:
+            self.data_matrix = numpy.delete(self.data_matrix, posn, 0)
+            s1 = self.sample_header.pop(posn)
+
+        self.check_size()
 
     def filterData(self, mag=1, min_thresh=-1000000, max_thresh=1000000):
         """filters out any gene for which the magnitude of expression is less than mag,
@@ -451,11 +469,12 @@ class Cluster(object):
             print "Sorting data into %d groups" % (len(groups))
 
         # split matrix based on the specified groups;
-        namelist = {'unassigned':[]}
-        poslist = {'unassigned':[]}
+        namelist = {}
+        poslist = {}
 
+        removedlist = []
 
-        for s in self.sample_header:
+        for s in self.sample_header[:]:
             for pattern in groups:
                 if pattern not in namelist:
                     namelist[pattern] = []
@@ -466,11 +485,12 @@ class Cluster(object):
                     poslist[pattern].append(self.sample_header.index(s))
                     break
             else:       # group not found in any sample list
-                print "#" * 30
-                print "%s could not be matched to any group ==> %r" % (s, groups)
-                print "#" * 30
-                namelist['unassigned'].append(s)
-                poslist['unassigned'].append(self.sample_header.index(s))
+                removedlist.append(s)
+                self.remove_sample(s)
+        if len(removedlist) > 0:
+            print "The following %d samples could not be matched to any group \
+                    and were removed ==> \n%s\nGroups: %s" % (len(removedlist),
+                     " ".join(removedlist), " ".join(groups))
         grouporder = []
         limits = []
         boundarystone = 0
@@ -483,16 +503,6 @@ class Cluster(object):
                 boundarystone += len(poslist[pattern])
             except KeyError:
                 print pattern, "None found!"
-            limits.append(boundarystone)
-        # for any unassigned samples:
-        if len(poslist['unassigned']) > 0:
-            try:
-                if verbose:
-                    print pattern, namelist['unassigned']
-                grouporder += poslist['unassigned']
-                boundarystone += len(poslist['unassigned'])
-            except KeyError:
-                print "unidentified KeyError has occurred line 486"
             limits.append(boundarystone)
 
 
@@ -591,6 +601,9 @@ class Cluster(object):
         print geneid
         for sample, value in zip(self.sample_header, values):
             print "%-25s %.2f" % (sample, value)
+
+    def randomise_samples(self):
+        neworder = numpy.random.shuffle(self.sample_header)
 
 
 ####################################################################################
@@ -751,7 +764,7 @@ def heatmap(cluster, display=True,kegg=False, go=False):
             except KeyError:
                 genelistd[group] = [geneid]
 
-        print "Performing GO enrichment analysis for %d groups" % (len(genelistd))
+        print "\nPerforming GO enrichment analysis for %d groups" % (len(genelistd))
         out_h = open(cluster.exportPath[:-4] + ".GO_enrichment.list", 'w')
 
         out_h.write("Group GOterm P-value\n")
@@ -782,7 +795,7 @@ def heatmap(cluster, display=True,kegg=False, go=False):
             except KeyError:
                 genelistd[group] = [geneid]
 
-        print "Performing KEGG pathway enrichment analysis for %d groups" % (len(genelistd))
+        print "\nPerforming KEGG pathway enrichment analysis for %d groups" % (len(genelistd))
         out_h = open(cluster.exportPath[:-4] + ".KEGG_enrichment.list", 'w')
 
         out_h.write("Group KEGG pathway P-value\n")
@@ -811,7 +824,7 @@ def heatmap(cluster, display=True,kegg=False, go=False):
     # axc --> axes for column side colorbar
     if cluster.column_method != None:
         axc = fig.add_axes([axc_x, axc_y, axc_w, axc_h])  # axes for column side colorbar
-        cmap_c = mpl.colors.ListedColormap(['r', 'g', 'b', 'y', 'w', 'k', 'm'])
+        cmap_c = mpl.colors.ListedColormap(['g', 'r', 'c', 'y', 'w', 'k', 'm'][:len(ind2)])
         dc = numpy.array(ind2, dtype=int)
         dc.shape = (1,len(ind2))
         im_c = axc.matshow(dc, aspect='auto', origin='lower', cmap=cmap_c)
@@ -825,7 +838,7 @@ def heatmap(cluster, display=True,kegg=False, go=False):
         dr = numpy.array(ind1, dtype=int)
         dr.shape = (len(ind1),1)
         #print ind1, len(ind1)
-        cmap_r = mpl.colors.ListedColormap(['r', 'g', 'b', 'y', 'w', 'k', 'm'])
+        cmap_r = mpl.colors.ListedColormap(['g', 'r', 'c', 'y', 'w', 'k', 'm'][:len(ind2)])
         im_r = axr.matshow(dr, aspect='auto', origin='lower', cmap=cmap_r)
         axr.set_xticks([]) ### Hides ticks
         axr.set_yticks([])
@@ -1153,7 +1166,7 @@ def degs_anova(cluster, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96", "FL
 
     """
     # try this code for flexible group size:
-    for g in range(self.genenumber):
+    for g in range(cluster.genenumber):
         exvalues = [cluster.datamatrix[limits[x]:limits[x+1],g] for x in range(len(limits) - 1)]
     """
     if onegene:
@@ -1188,6 +1201,70 @@ def degs_anova(cluster, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96", "FL
         cluster.invert_matrix()
 
     return A_dict
+
+def signal_to_noise(cluster, groups=["SP", "FL"], verbose=False):
+    """
+    SNR = (u0 - u1) / (s0 + s1)
+
+    snr_dict = {gene: signal to noise ratio}
+
+
+    """
+    # will only work if genes are columns in matrix
+    revert = False
+    if cluster._genes_as_rows:
+        cluster.invert_matrix()
+        revert = True
+
+    snr_dict = {}
+    limits = [0] + cluster.reorder_matrix(groups=groups, verbose=verbose)
+
+    for g in range(cluster.genenumber):
+        exvalues = [cluster.data_matrix[limits[x]:limits[x+1],g] for x in range(len(limits) - 1)]
+        exmeans  = [numpy.mean(cluster.data_matrix[limits[x]:limits[x+1],g]) for x in range(len(limits) - 1)]
+        exstdev  = [numpy.std(cluster.data_matrix[limits[x]:limits[x+1],g]) for x in range(len(limits) - 1)]
+
+        snr_dict[cluster.gene_header[g]] =  exmeans[0] - exmeans[1] / sum(exstdev)
+
+    # if matrix was inverted for gene removal, restore to its previous orientation:
+    if revert:
+        cluster.invert_matrix()
+
+    return snr_dict
+
+def enrichment_score(snr_dict, pathway_list, rho=1):
+    """
+    calculate the enrichment score for a pathway. Genes in the pathway are specified in
+    pathway_list. The correlation of genotype to phenotype is the signal to noise ratio,
+    but any other correlation can be used also. Rho is the scaling factor. According to
+    Subramanian et al, if rho is 0, then the enrichment score scales to a classic
+    Komogorov-Smirnov statistic.
+    """
+
+    sorted_genes = ( gene for gene, value in sorted(snr_dict.iteritems(), key=itemgetter(1)) )
+    ES = [0]
+    Nr = sum( abs(snr_dict[g])**rho for g in pathway_list if g in snr_dict)
+    for gene in sorted_genes:
+        if gene in pathway_list:
+            ES.append(ES[-1] + (abs(snr_dict[gene])**rho)/Nr )
+        else:
+            ES.append( ES[-1] - 1./(len(snr_dict)-len(pathway_list)) )
+
+    if max(ES[1:]) > abs(min(ES[1:])):
+        maxdev = max(ES[1:])
+    else:
+        maxdev = min(ES[1:])
+    return maxdev/numpy.sqrt(len(pathway_list))
+
+def nominal_p(score, distribution):
+    "Given the empirical score, and permuted distribution, calculate the P value of score"
+
+    if score > 0:
+        beatenby = len([x for x in distribution if score < x])
+    else:
+        beatenby = len([x for x in distribution if score > x])
+
+    return 1.0 * beatenby / len(distribution)
 
 def bar_charts(cluster, genelist, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96", "FL", "FP06", "FP12", "FP24","FP48", "FP96" ], postfix=''):
     """creates bar plots of all genes in genelist, showing mean and error for each
@@ -1292,7 +1369,7 @@ def expression_peaks(cluster, magnitude, group1 = [ "SP", "SL06", "SL12", "SL24"
     if cluster.averaged == False:
         cluster.average_matrix(group1 + group2)
     print cluster.sample_header
-    peaklist = []
+    peaklist = {}
 
     for gene in range(cluster.genenumber):
         # for group 1:
@@ -1305,12 +1382,12 @@ def expression_peaks(cluster, magnitude, group1 = [ "SP", "SL06", "SL12", "SL24"
             # check adjacent peaks are not too big:
             if maxposn == len(group1) - 1:
                 if (maxexpression * 0.02 < datalist[maxposn - 1] < maxexpression * 0.5):
-                    peaklist.append(cluster.gene_header[gene])
+                    peaklist[cluster.gene_header[gene]] = group1[maxposn]
 
             elif (maxexpression * 0.02 < datalist[maxposn - 1] < maxexpression * 0.5) and \
                     (maxexpression * 0.02 < datalist[maxposn + 1] < maxexpression * 0.5):
 
-                peaklist.append(cluster.gene_header[gene])
+                peaklist[cluster.gene_header[gene]] = group1[maxposn]
 
         # for group 2:
         maxexpression = max(datalist[len(group1):])
@@ -1322,12 +1399,12 @@ def expression_peaks(cluster, magnitude, group1 = [ "SP", "SL06", "SL12", "SL24"
             try:
                 if maxposn == len(group1+group2) - 1:
                     if (maxexpression * 0.02 < datalist[maxposn - 1] < maxexpression * 0.5):
-                        peaklist.append(cluster.gene_header[gene])
+                        peaklist[cluster.gene_header[gene]] = (group1 + group2)[maxposn]
 
                 elif (maxexpression * 0.02 < datalist[maxposn - 1] < maxexpression * 0.5) and \
                            (maxexpression * 0.02 < datalist[maxposn + 1] < maxexpression * 0.5):
 
-                    peaklist.append(cluster.gene_header[gene])
+                    peaklist[cluster.gene_header[gene]] = (group1 + group2)[maxposn]
             except IndexError as inst:
                 print inst
                 print datalist
@@ -1403,6 +1480,7 @@ if __name__ == '__main__':
     parser.add_argument("-E", "--go_enrichment", action='store_true', help="Perform GO term enrichment analysis on gene clusters")
     parser.add_argument("--neighbours", type=str, help="returns a list of the N closest neighbours to specified genes.")
     parser.add_argument("-N", "--num_neighbours", type=int, default=10, help="specify the number of nearest neighbours to return. Default is 10.")
+    parser.add_argument("--GSEA", type=int, help='performs gene set enrichment analysis')
     # viewing options
     parser.add_argument("-c", "--color_gradient", type=str, dest="color_gradient", default='red_white_blue', help="The colour scheme \n(red_white_blue, red_black_sky, red_black_blue, \nred_black_green, yellow_black_blue, seismic, \ngreen_white_purple, coolwarm)")
     parser.add_argument("-d", "--distribution", action='store_true', default=False, help="Shows FPKM distribution of each sample before and after normalisation")
@@ -1498,11 +1576,58 @@ if __name__ == '__main__':
         print "%d genes with expression peaks found" % (cluster.genenumber)
         out_h = open(filename[:-4] + ".expression_peaks.list", 'w')
         for gene in peaklist:
-            out_h.write( "%s\n" % (gene) )
+            out_h.write( "%-20s %s\n" % (gene, peaklist[gene]) )
         out_h.close()
 
 
     ####### ANALYSIS OPTIONS ##############
+
+    ## Gene Set Enrichment Analysis (cf Subramanian et al. (2005) PNAS 102(43)
+    if args.GSEA:
+        print "\nCalculating signal to noise ratio"
+        snr_dict = signal_to_noise(cluster)
+
+        es = {}
+        paths = {}
+        print "Calculating pathway enrichment scores..."
+        paths, smallpaths = genematch.collect_kegg_pathways(minsize=10)
+        paths.update(smallpaths)
+        paths.update(genematch.collect_ipr_pathways(minsize=10))
+        paths.update(genematch.collect_go_pathways(minsize=10) )
+        for pathway in paths:
+            es[pathway] = enrichment_score(snr_dict, paths[pathway])
+
+
+
+        # computing significance:
+        rand_es = {}
+
+        print "Permuting pathways %d times" % args.GSEA
+        for pathway in paths:
+            rand_es[pathway] = []
+
+
+        bar = progressbar.ProgressBar(maxval=args.GSEA, \
+            widgets=[progressbar.Bar('=', '[', ']'), ' ', progressbar.ETA()]) # can also use progressbar.Percentage()
+        pbcount=0
+        bar.update(pbcount)
+
+        for i in range(args.GSEA):
+            pbcount += 1
+            cluster.randomise_samples()
+            snr_dict = signal_to_noise(cluster)
+            for pathway in paths:
+                rand_es[pathway].append(enrichment_score(snr_dict, paths[pathway]))
+            bar.update(pbcount)
+        bar.finish()
+
+        pvalues = {}
+        for pathway in paths:
+            pvalues[pathway] = nominal_p(es[pathway], rand_es[pathway])
+
+        for pathway,pval in sorted(pvalues.iteritems(), key=itemgetter(1)):
+            print "%-50s ES=%.4f   P=%.4f\n%r\n" % (pathway, es[pathway], pval, sorted(rand_es[pathway]))
+
 
     ## Principal Component Analysis:
     if args.pca:
@@ -1582,7 +1707,6 @@ if __name__ == '__main__':
                                 "FL", "FP06", "FP12", "FP24","FP48", "FP96"])
 
 
-    print cluster.sample_header
     ## perform hierarchical clustering
     if cluster.genenumber > 1 and args.no_clustering is False:
         try:
