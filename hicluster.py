@@ -488,9 +488,8 @@ class Cluster(object):
                 removedlist.append(s)
                 self.remove_sample(s)
         if len(removedlist) > 0:
-            print "The following %d samples could not be matched to any group \
-                    and were removed ==> \n%s\nGroups: %s" % (len(removedlist),
-                     " ".join(removedlist), " ".join(groups))
+            print("The following %d samples could not be matched to any group and were removed ==> \n%s\nGroups: %s"
+                     % (len(removedlist), " ".join(removedlist), " ".join(groups)))
         grouporder = []
         limits = []
         boundarystone = 0
@@ -1135,19 +1134,18 @@ def expression_dist(cluster, max_x=500, min_x=0, histo=False):
         plt.setp(labels, rotation=90)
         plt.show()
 
-def find_degs(cluster, group1="_F", group2="_S"):
-    "finds DEGs using t-test and returns dictionary { Gene:P-value }"
+def find_degs(cluster, group1="_FL", group2="_SP"):
+    "finds DEGs using t-test and returns dictionary { Gene:t-value, P-value }"
 
-    limits = cluster.reorder_matrix(groups=["_F","_S"])
+    limits = [0] + cluster.reorder_matrix(groups=[group1,group2])
+    t_dict = {}
 
     print "Performing t-test"
-    limit = limits[0]
-    t_dict = {}
-    print "limit for t-test",limit
+
     for g in range(cluster.genenumber):
-        t_val, p_val = stats.ttest_ind(cluster.data_matrix[:limit,g],\
-                            cluster.data_matrix[limit:,g])
-        t_dict[column_header[g]] = p_val
+        exvalues = [cluster.data_matrix[limits[x]:limits[x+1],g] for x in range(len(limits) - 1)]
+        t_val, p_val = stats.ttest_ind(exvalues)
+        t_dict[cluster.gene_header[g]] = t_val, p_val
 
     return t_dict
 
@@ -1265,6 +1263,64 @@ def nominal_p(score, distribution):
         beatenby = len([x for x in distribution if score > x])
 
     return 1.0 * beatenby / len(distribution)
+
+def gene_set_enrichment(cluster, permutations=1000):
+    print "\nCalculating signal to noise ratio"
+    snr_dict = signal_to_noise(cluster)
+
+    es = {}
+    paths = {}
+    print "Calculating pathway enrichment scores..."
+    paths, smallpaths = genematch.collect_kegg_pathways(minsize=10)
+    paths.update(smallpaths)
+    paths.update(genematch.collect_ipr_pathways(minsize=10))
+    paths.update(genematch.collect_go_pathways(minsize=10) )
+    for pathway in paths:
+        es[pathway] = enrichment_score(snr_dict, paths[pathway])
+
+
+
+    # computing significance:
+    rand_es = {}
+
+    print "Permuting pathways %d times" % args.GSEA
+    for pathway in paths:
+        rand_es[pathway] = []
+
+
+    bar = progressbar.ProgressBar(maxval=permutations, \
+        widgets=[progressbar.Bar('=', '[', ']'), ' ', progressbar.ETA()]) # can also use progressbar.Percentage()
+    pbcount=0
+    bar.update(pbcount)
+
+    for i in range(permutations):
+        pbcount += 1
+        cluster.randomise_samples()
+        snr_dict = signal_to_noise(cluster)
+        for pathway in paths:
+            rand_es[pathway].append(enrichment_score(snr_dict, paths[pathway]))
+        bar.update(pbcount)
+    bar.finish()
+
+    pvalues = {}
+    for pathway in paths:
+        pvalues[pathway] = nominal_p(es[pathway], rand_es[pathway])
+
+    return es, pvalues
+
+def irizarry_enrichment_score(snr_dict, pathway_list):
+    """ a scale-sensitive test using the chi-square distribution to test for enrichment of
+    a gene set. This method is (ostensibly) more sensitive than the GSEA K-S test
+    (see Irizarry et al (2009) Stat Methods Med Res. 18(6) 565-575
+
+    see also http://www.biostat.jhsph.edu/~ririzarr/688/enrichment.pdf for a helpful
+    elaboration on the method.
+    """
+
+    t_hat = sum(snr_dict[g] for g in pathway_list) / len(pathway_list)
+    es_score = sum( (snr_dict[g] - t_hat)**2 - len(pathway_list) + 1 ) / numpy.sqrt(2 * (len(pathway_list) - 1))
+
+    return es_score
 
 def bar_charts(cluster, genelist, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96", "FL", "FP06", "FP12", "FP24","FP48", "FP96" ], postfix=''):
     """creates bar plots of all genes in genelist, showing mean and error for each
@@ -1481,6 +1537,7 @@ if __name__ == '__main__':
     parser.add_argument("--neighbours", type=str, help="returns a list of the N closest neighbours to specified genes.")
     parser.add_argument("-N", "--num_neighbours", type=int, default=10, help="specify the number of nearest neighbours to return. Default is 10.")
     parser.add_argument("--GSEA", type=int, help='performs gene set enrichment analysis')
+    parser.add_argument("--irizarry", action='store_true', help="performs gene set enrichment analysis according to Irizarry's scale sensitive chi square statistic")
     # viewing options
     parser.add_argument("-c", "--color_gradient", type=str, dest="color_gradient", default='red_white_blue', help="The colour scheme \n(red_white_blue, red_black_sky, red_black_blue, \nred_black_green, yellow_black_blue, seismic, \ngreen_white_purple, coolwarm)")
     parser.add_argument("-d", "--distribution", action='store_true', default=False, help="Shows FPKM distribution of each sample before and after normalisation")
@@ -1584,9 +1641,18 @@ if __name__ == '__main__':
 
     ## Gene Set Enrichment Analysis (cf Subramanian et al. (2005) PNAS 102(43)
     if args.GSEA:
-        print "\nCalculating signal to noise ratio"
-        snr_dict = signal_to_noise(cluster)
+        es, pvalues = gene_set_enrichment(cluster, permutations=args.GSEA)
+        out_h = open(filename[:-4] + ".GSEA.list", 'w')
+        for pathway,escore in sorted(es.iteritems(), key=itemgetter(1)):
+            if pvalues[pathway] < 0.1:
+                out_h.write( "%-15s %-50s%s ES=%+8.4f   P=%8.4f\n" % (
+                    pathway[0], pathway[1][:50], '...' if len(pathway[1])>50 else '   ',
+                    escore, pvalues[pathway]))
+        out_h.close()
 
+    if args.irizarry:
+        print "Calculating Irizarry gene enrichment..."
+        t_dict = find_degs(cluster, group1="_FL", group2="_SP")
         es = {}
         paths = {}
         print "Calculating pathway enrichment scores..."
@@ -1595,38 +1661,7 @@ if __name__ == '__main__':
         paths.update(genematch.collect_ipr_pathways(minsize=10))
         paths.update(genematch.collect_go_pathways(minsize=10) )
         for pathway in paths:
-            es[pathway] = enrichment_score(snr_dict, paths[pathway])
-
-
-
-        # computing significance:
-        rand_es = {}
-
-        print "Permuting pathways %d times" % args.GSEA
-        for pathway in paths:
-            rand_es[pathway] = []
-
-
-        bar = progressbar.ProgressBar(maxval=args.GSEA, \
-            widgets=[progressbar.Bar('=', '[', ']'), ' ', progressbar.ETA()]) # can also use progressbar.Percentage()
-        pbcount=0
-        bar.update(pbcount)
-
-        for i in range(args.GSEA):
-            pbcount += 1
-            cluster.randomise_samples()
-            snr_dict = signal_to_noise(cluster)
-            for pathway in paths:
-                rand_es[pathway].append(enrichment_score(snr_dict, paths[pathway]))
-            bar.update(pbcount)
-        bar.finish()
-
-        pvalues = {}
-        for pathway in paths:
-            pvalues[pathway] = nominal_p(es[pathway], rand_es[pathway])
-
-        for pathway,pval in sorted(pvalues.iteritems(), key=itemgetter(1)):
-            print "%-50s ES=%.4f   P=%.4f\n%r\n" % (pathway, es[pathway], pval, sorted(rand_es[pathway]))
+            es[pathway] = irizarry_enrichment_score(t_dict, paths[pathway])
 
 
     ## Principal Component Analysis:
