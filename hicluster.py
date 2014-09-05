@@ -30,30 +30,15 @@ import scipy
 from scipy import stats
 import scipy.cluster.hierarchy as sch
 import scipy.spatial.distance as dist
+from scipy import interpolate
 from statsmodels.stats.multicomp import pairwise_tukeyhsd
 
 from genomepy import genematch
 import progressbar              # from Nilton Volpato
 
-################# Perform the hierarchical clustering #################
-###  heatmap function updated from original code hierarchical_clustering.py
-#    Copyright 2005-2012 J. David Gladstone Institutes, San Francisco California
-#    Author Nathan Salomonis - nsalomonis@gmail.com
-#
-#    Original message:
-#Permission is hereby granted, free of charge, to any person obtaining a copy
-#of this software and associated documentation files (the "Software"), to deal
-#in the Software without restriction, including without limitation the rights
-#to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-#copies of the Software, and to permit persons to whom the Software is furnished
-#to do so, subject to the following conditions:
+####################################################################################
+####################################################################################
 
-#THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
-#INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-#PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
-#HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-#OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-#SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 class Cluster(object):
     def __init__(self, datafile, exportPath=os.getcwd(), firstrow=True, genes_as_rows=False, \
@@ -608,8 +593,26 @@ class Cluster(object):
 ####################################################################################
 ####################################################################################
 
-
 def heatmap(cluster, display=True,kegg=False, go=False):
+    ################# Perform the hierarchical clustering #################
+    ###  heatmap function updated from original code hierarchical_clustering.py
+    #    Copyright 2005-2012 J. David Gladstone Institutes, San Francisco California
+    #    Author Nathan Salomonis - nsalomonis@gmail.com
+    #
+    #    Original message:
+    #Permission is hereby granted, free of charge, to any person obtaining a copy
+    #of this software and associated documentation files (the "Software"), to deal
+    #in the Software without restriction, including without limitation the rights
+    #to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    #copies of the Software, and to permit persons to whom the Software is furnished
+    #to do so, subject to the following conditions:
+
+    #THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+    #INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+    #PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+    #HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+    #OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+    #SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
     print "\nPerforming hiearchical clustering using %s for columns and %s for rows" % \
             (cluster.column_metric, cluster.row_metric)
@@ -902,8 +905,6 @@ def find_nearest_neighbours(cluster, geneobj, numberofneighbours=10):
 
 ################# Export the flat cluster data #####################################
 
-
-
 def exportFlatClusterData(filename, new_row_header,new_column_header,xt,ind1,ind2):
     """ Export the clustered results as a text file, only indicating the flat-clusters rather than the tree """
 
@@ -1144,14 +1145,14 @@ def find_degs(cluster, group1="_FL", group2="_SP"):
 
     for g in range(cluster.genenumber):
         exvalues = [cluster.data_matrix[limits[x]:limits[x+1],g] for x in range(len(limits) - 1)]
-        t_val, p_val = stats.ttest_ind(exvalues)
-        t_dict[cluster.gene_header[g]] = t_val, p_val
+        t_val, p_val = stats.ttest_ind(exvalues[0],exvalues[1])
+        t_dict[cluster.gene_header[g]] = float(t_val), p_val
 
     return t_dict
 
 def degs_anova(cluster, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96", "FL", "FP06", "FP12", "FP24","FP48", "FP96" ], onegene=False):
     "finds DEGs using ANOVA and returns dictionary { Gene:P-value }"
-
+    ### change to return {Gene: F-stat, Pval }
     # will only work if genes are columns in matrix
     revert = False
     if cluster._genes_as_rows:
@@ -1162,6 +1163,7 @@ def degs_anova(cluster, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96", "FL
     limits = cluster.reorder_matrix(groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96","FP06", "FP12", "FP24","FP48", "FP96", "FL"])
     A_dict = {}
 
+    ### replace with the following code:
     """
     # try this code for flexible group size:
     for g in range(cluster.genenumber):
@@ -1308,7 +1310,7 @@ def gene_set_enrichment(cluster, permutations=1000):
 
     return es, pvalues
 
-def irizarry_enrichment_score(snr_dict, pathway_list):
+def irizarry_enrichment(t_dict, pathway_list):
     """ a scale-sensitive test using the chi-square distribution to test for enrichment of
     a gene set. This method is (ostensibly) more sensitive than the GSEA K-S test
     (see Irizarry et al (2009) Stat Methods Med Res. 18(6) 565-575
@@ -1317,10 +1319,28 @@ def irizarry_enrichment_score(snr_dict, pathway_list):
     elaboration on the method.
     """
 
-    t_hat = sum(snr_dict[g] for g in pathway_list) / len(pathway_list)
-    es_score = sum( (snr_dict[g] - t_hat)**2 - len(pathway_list) + 1 ) / numpy.sqrt(2 * (len(pathway_list) - 1))
 
+    t_hat = sum(t_dict[g][0] for g in pathway_list if g in t_dict) / len(pathway_list)
+    # this score consistently gives only -ve values (chi square values should be +ve)
+    # avoid using until fixed and/or confirmed.
+    es_score = sum( [(t_dict[g][0] - t_hat)**2 - len(pathway_list) + 1 for g in pathway_list if g in t_dict] )     / numpy.sqrt(2 * (len(pathway_list) - 1))
+    pvalue = 1 - stats.chi2.cdf(es_score, df=len(pathway_list) - 1)
     return es_score
+
+def irizarry_enrichment_z(t_dict, pathway_list):
+    """ a scale-sensitive test using the chi-square distribution to test for enrichment of
+    a gene set. This method is (ostensibly) more sensitive than the GSEA K-S test
+    (see Irizarry et al (2009) Stat Methods Med Res. 18(6) 565-575
+
+    see also http://www.biostat.jhsph.edu/~ririzarr/688/enrichment.pdf for a helpful
+    elaboration on the method.
+    """
+
+
+    t_hat = sum(t_dict[g][0] for g in pathway_list if g in t_dict) / len(pathway_list)
+    es_score = numpy.sqrt(len(pathway_list)) * t_hat
+    pvalue = 1 - stats.t.cdf(es_score, len(pathway_list) - 1)
+    return pvalue
 
 def bar_charts(cluster, genelist, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96", "FL", "FP06", "FP12", "FP24","FP48", "FP96" ], postfix=''):
     """creates bar plots of all genes in genelist, showing mean and error for each
@@ -1469,6 +1489,51 @@ def expression_peaks(cluster, magnitude, group1 = [ "SP", "SL06", "SL12", "SL24"
     print len(peaklist), "significant peaks found."
     return peaklist
 
+def p_to_q(pvalues):
+    """
+    Given the list of pvalues, convert to pFDR q-values.
+    According to Storey and Tibshirani (2003) PNAS 100(16) : 9440
+
+    """
+    # order p-values:
+    pvalues.sort()
+
+    # estimate pi0:
+    # evaluate pi0 across the range of lambda:
+    lamrange = numpy.arange(0,0.95,0.01)
+    pbeaters = [ sum( p > lam for p in pvalues) for lam in lamrange ]
+    denominator = [ (len(pvalues) * (1 - lam)) for lam in lamrange ]
+    pi0_lam = [ (sum( p > lam for p in pvalues) / (len(pvalues) * (1 - lam))) for lam in lamrange ]
+    pi0_hardway = []
+    for i in range(len(pbeaters)):
+        pi0_hardway += [ pbeaters[i] / denominator[i] ]
+
+    print "pi0_hardway length:", len(pi0_hardway)
+    print "p_values size:", len(pvalues)
+    # fit cubic spline to data, then calculate value of pi0 for lambda = 1:
+    tck = interpolate.splrep(lamrange, pi0_lam)
+    splinecurve = interpolate.splev(lamrange, tck, der=0)
+    pi0_hat = interpolate.splev(1, tck, der=0)
+
+    plt.figure()
+    plt.plot(lamrange, pi0_hardway, 'r', lamrange, pi0_lam, 'go' ) # lamrange, splinecurve,  'go'
+    plt.xlabel("lambda")
+    plt.ylabel("value")
+    plt.title('pi0_hat(lambda) estimations')
+    plt.show()
+
+
+    q_pm =  pi0_hat * pvalues[-1]    #  q(pm)
+    # creates an ordered list of q(p(i)) values.
+    q_pi_list = [q_pm] + [ (pi0_hat * len(pvalues)*pvalues[i])/i for i in range(len(pvalues)-1,1,-1)]
+    print q_pi_list[0:20], q_pi_list[-20:-1]
+    # "The estimated q value for the ith most significant feature is q(p(i))"
+    q_val = {}
+    for i in range(len(pvalues)):
+        q_val[pvalues[-1 * i]] = min(q_pi_list[:i+1])
+
+    return q_val
+
 ################# Miscellaneous methods #############################################
 
 def make_a_list(geneobj, col_num=0):
@@ -1538,6 +1603,7 @@ if __name__ == '__main__':
     parser.add_argument("-N", "--num_neighbours", type=int, default=10, help="specify the number of nearest neighbours to return. Default is 10.")
     parser.add_argument("--GSEA", type=int, help='performs gene set enrichment analysis')
     parser.add_argument("--irizarry", action='store_true', help="performs gene set enrichment analysis according to Irizarry's scale sensitive chi square statistic")
+    parser.add_argument("--irizarry_z", action='store_true', help="performs gene set enrichment analysis according to Irizarry's z statistic")
     # viewing options
     parser.add_argument("-c", "--color_gradient", type=str, dest="color_gradient", default='red_white_blue', help="The colour scheme \n(red_white_blue, red_black_sky, red_black_blue, \nred_black_green, yellow_black_blue, seismic, \ngreen_white_purple, coolwarm)")
     parser.add_argument("-d", "--distribution", action='store_true', default=False, help="Shows FPKM distribution of each sample before and after normalisation")
@@ -1653,7 +1719,7 @@ if __name__ == '__main__':
     if args.irizarry:
         print "Calculating Irizarry gene enrichment..."
         t_dict = find_degs(cluster, group1="_FL", group2="_SP")
-        es = {}
+        pvalues = {}
         paths = {}
         print "Calculating pathway enrichment scores..."
         paths, smallpaths = genematch.collect_kegg_pathways(minsize=10)
@@ -1661,8 +1727,39 @@ if __name__ == '__main__':
         paths.update(genematch.collect_ipr_pathways(minsize=10))
         paths.update(genematch.collect_go_pathways(minsize=10) )
         for pathway in paths:
-            es[pathway] = irizarry_enrichment_score(t_dict, paths[pathway])
+            pvalues[pathway] = irizarry_enrichment(t_dict, paths[pathway])
+        out_h = open(filename[:-4] + ".GSEA_Irizarry.list", 'w')
+        for pathway,pval in sorted(pvalues.iteritems(), key=itemgetter(1)):
+            if pvalues[pathway]:
+                out_h.write( "%-15s %-50s%s P=%8.4f\n" % (
+                    pathway[0], pathway[1][:50], '...' if len(pathway[1])>50 else '   ',
+                    pval))
+        out_h.close()
 
+    if args.irizarry_z:
+        print "Calculating Irizarry gene enrichment..."
+        t_dict = find_degs(cluster, group1="_FL", group2="_SP")
+        pvalues = {}
+        paths = {}
+        print "Calculating pathway enrichment scores..."
+        paths, smallpaths = genematch.collect_kegg_pathways(minsize=10)
+        paths.update(smallpaths)
+        paths.update(genematch.collect_ipr_pathways(minsize=10))
+        paths.update(genematch.collect_go_pathways(minsize=10) )
+        for pathway in paths:
+            pvalues[pathway] = irizarry_enrichment_z(t_dict, paths[pathway])
+        out_h = open(filename[:-4] + ".GSEA_Irizarry_z.list", 'w')
+        for pathway,pval in sorted(pvalues.iteritems(), key=itemgetter(1)):
+            if pvalues[pathway] <= 0.05:
+                out_h.write( "%-15s %-50s%s P=%8.4f\n" % (
+                    pathway[0], pathway[1][:50], '...' if len(pathway[1])>50 else '   ',
+                    pval))
+        out_h.close()
+
+        randomps = numpy.random.random(5000)
+        qvalues = p_to_q(pvalues.values())
+        for p,q in sorted(qvalues.iteritems()):
+            print "%-8.4f %-.4f" % (p, qvalues[p])
 
     ## Principal Component Analysis:
     if args.pca:
