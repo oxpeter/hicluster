@@ -17,12 +17,15 @@ import time
 import sys, os, re
 import getopt
 import argparse
+import multiprocessing
 from operator import itemgetter
+from itertools import chain, repeat
 
+
+import pylab
 import numpy
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
-import pylab
 import matplotlib as mpl
 from matplotlib.backends.backend_pdf import PdfPages
 from mpl_toolkits.mplot3d import Axes3D
@@ -33,12 +36,89 @@ import scipy.spatial.distance as dist
 from scipy import interpolate
 from statsmodels.stats.multicomp import pairwise_tukeyhsd
 
+
 from genomepy import genematch
 import progressbar              # from Nilton Volpato
 
 ####################################################################################
-####################################################################################
+# ############################### CLASSES ######################################## #
+# #                                                                              # #
+# #                                                                              # #
 
+class Permutable(object):
+    def __init__(self, cluster):
+        if cluster._genes_as_rows:
+            cluster.invert_matrix()
+        self._genes_as_rows = False
+        self.data_matrix = numpy.copy(cluster.data_matrix)
+        self.sample_header = cluster.sample_header[:]
+        self.gene_header = cluster.gene_header[:]
+        self.column_header = cluster.column_header[:]
+        self.row_header = cluster.row_header[:]
+        self.column_metric = cluster.row_metric
+        self.genenumber = cluster.genenumber
+        self.samplesize = cluster.samplesize
+
+    def randomise_samples(self):
+        neworder = numpy.random.shuffle(self.sample_header)
+
+    def reorder_matrix(self, groups=["_FL","_SP"], verbose=False):
+        "reorders rows such that they are sorted accordign to specified groups"
+
+        if verbose:
+            print "Sorting data into %d groups" % (len(groups))
+
+        # split matrix based on the specified groups;
+        namelist = {}
+        poslist = {}
+
+        removedlist = []
+
+        for s in self.sample_header[:]:
+            for pattern in groups:
+                if pattern not in namelist:
+                    namelist[pattern] = []
+                    poslist[pattern] = []
+                # assign each sample to a group:
+                if re.search(pattern,s) is not None:
+                    namelist[pattern].append(s)
+                    poslist[pattern].append(self.sample_header.index(s))
+                    break
+            else:       # group not found in any sample list
+                removedlist.append(s)
+                self.remove_sample(s)
+        if len(removedlist) > 0:
+            print("The following %d samples could not be matched to any group and were removed ==> \n%s\nGroups: %s"
+                     % (len(removedlist), " ".join(removedlist), " ".join(groups)))
+        grouporder = []
+        limits = []
+        boundarystone = 0
+        for pattern in groups:
+            try:
+                if verbose:
+                    print pattern, namelist[pattern]
+                    print poslist[pattern]
+                grouporder += poslist[pattern]
+                boundarystone += len(poslist[pattern])
+            except KeyError:
+                print pattern, "None found!"
+            limits.append(boundarystone)
+
+        matrix_reord = self.data_matrix[grouporder,:]
+        row_header_new = [self.sample_header[i] for i in grouporder]
+
+        if verbose:
+            print self.sample_header
+            print "grouporder       :", grouporder
+            print row_header_new
+            print "limits (boundary):", limits
+
+
+        self.data_matrix = matrix_reord
+        self.row_header = row_header_new
+        self.sample_header = row_header_new
+
+        return limits
 
 class Cluster(object):
     def __init__(self, datafile, exportPath=os.getcwd(), firstrow=True, genes_as_rows=False, \
@@ -589,9 +669,16 @@ class Cluster(object):
     def randomise_samples(self):
         neworder = numpy.random.shuffle(self.sample_header)
 
+# #                                                                              # #
+# #                                                                              # #
+# ############################## END CLASSES ##################################### #
+####################################################################################
+
 
 ####################################################################################
-####################################################################################
+# ############################### FUNCTIONS ###################################### #
+# #                                                                              # #
+# #                                                                              # #
 
 def heatmap(cluster, display=True,kegg=False, go=False):
     ################# Perform the hierarchical clustering #################
@@ -1202,14 +1289,13 @@ def degs_anova(cluster, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96", "FL
 
     return A_dict
 
-def signal_to_noise(cluster, groups=["SP", "FL"], verbose=False):
+def signal_to_noise(cluster, groups=["_SP", "_FL"], verbose=False):
     """
     SNR = (u0 - u1) / (s0 + s1)
 
     snr_dict = {gene: signal to noise ratio}
-
-
     """
+
     # will only work if genes are columns in matrix
     revert = False
     if cluster._genes_as_rows:
@@ -1224,6 +1310,11 @@ def signal_to_noise(cluster, groups=["SP", "FL"], verbose=False):
         exmeans  = [numpy.mean(cluster.data_matrix[limits[x]:limits[x+1],g]) for x in range(len(limits) - 1)]
         exstdev  = [numpy.std(cluster.data_matrix[limits[x]:limits[x+1],g]) for x in range(len(limits) - 1)]
 
+        if exstdev[0] < 0.2 * exmeans[0]:
+            exstdev[0] = 0.2 * exmeans[0]
+        if exstdev[1] < 0.2 * exmeans[1]:
+            exstdev[1] = 0.2 * exmeans[1]
+
         snr_dict[cluster.gene_header[g]] =  exmeans[0] - exmeans[1] / sum(exstdev)
 
     # if matrix was inverted for gene removal, restore to its previous orientation:
@@ -1232,13 +1323,16 @@ def signal_to_noise(cluster, groups=["SP", "FL"], verbose=False):
 
     return snr_dict
 
-def enrichment_score(snr_dict, pathway_list, rho=1):
+def enrichment_score( snr_dict, pathway_list, rho=1):
     """
     calculate the enrichment score for a pathway. Genes in the pathway are specified in
     pathway_list. The correlation of genotype to phenotype is the signal to noise ratio,
     but any other correlation can be used also. Rho is the scaling factor. According to
     Subramanian et al, if rho is 0, then the enrichment score scales to a classic
     Komogorov-Smirnov statistic.
+
+    pathway variable is not used in the function, merely returned so that downstream
+    functions know which pathway the pathway list came from
     """
 
     sorted_genes = ( gene for gene, value in sorted(snr_dict.iteritems(), key=itemgetter(1)) )
@@ -1254,20 +1348,55 @@ def enrichment_score(snr_dict, pathway_list, rho=1):
         maxdev = max(ES[1:])
     else:
         maxdev = min(ES[1:])
-    return maxdev/numpy.sqrt(len(pathway_list))
+    return  maxdev
 
 def nominal_p(score, distribution):
     "Given the empirical score, and permuted distribution, calculate the P value of score"
 
-    if score > 0:
+    if score >= 0:
         beatenby = len([x for x in distribution if score < x])
     else:
         beatenby = len([x for x in distribution if score > x])
 
     return 1.0 * beatenby / len(distribution)
 
+def normalise_es(score, distribution):
+    """
+    "The global statistics Sk depend on size of gene set and therefore are not
+    identically distributed. GSEA addresses this issue by normalizing Sk values to
+    factor out the intrinsic gene set size dependence. The relevant normalization is a
+    change or scale using the expected value of the positive (negative) null distribution
+    statistic induced by sample permutation."
+                                    - Tamayo et al. (2012) Stat Methods Med Res.
+
+    This function normalises the observed enrichment score and the permuted es
+    distribution by dividing by the mean of the distribution (conditional on the
+    direction of the score, +ve or -ve.
+
+    """
+    # find average of all permutations from +ve distribution:
+    exp_es_plus  = numpy.mean([x for x in distribution if  x >= 0])
+    # find average of all permutations from -ve distribution:
+    exp_es_minus = numpy.mean([x for x in distribution if x < 0])
+
+    # normalise enrichment score:
+    if score >= 0:
+        nes = 1.0 * score / exp_es_plus
+    else:
+        nes = -1.0 * score / exp_es_minus
+    #print "#1 %+6.4f %6.4f %r" % (score, nes, distribution)
+
+    # normalise permutation distribution:
+    for res, posn in zip(distribution[:],range(len(distribution))):
+        if res >= 0:
+            distribution[posn] = res / exp_es_plus
+        else:
+            distribution[posn] = -1.0 * res / exp_es_minus
+    #print "#2 %+6.4f %6.4f %r" % (score, nes, distribution)
+    return nes, distribution
+
 def gene_set_enrichment(cluster, permutations=1000):
-    print "\nCalculating signal to noise ratio"
+    print "\nPerforming gene set enrichment analysis."
     snr_dict = signal_to_noise(cluster)
 
     es = {}
@@ -1277,38 +1406,104 @@ def gene_set_enrichment(cluster, permutations=1000):
     paths.update(smallpaths)
     paths.update(genematch.collect_ipr_pathways(minsize=10))
     paths.update(genematch.collect_go_pathways(minsize=10) )
+
     for pathway in paths:
         es[pathway] = enrichment_score(snr_dict, paths[pathway])
 
-
-
     # computing significance:
-    rand_es = {}
-
     print "Permuting pathways %d times" % args.GSEA
+
+    t = time.time()
+    p1 = Permutable(cluster)
+    p2 = Permutable(cluster)
+    p3 = Permutable(cluster)
+    q1 = multiprocessing.Queue()
+    q2 = multiprocessing.Queue()
+    q3 = multiprocessing.Queue()
+
+    proc1 = multiprocessing.Process(target=permute_data, args=(p1, q1, (permutations + 2) / 3, paths))
+    proc2 = multiprocessing.Process(target=permute_data, args=(p2, q2, (permutations + 2) / 3, paths))
+    proc3 = multiprocessing.Process(target=permute_data_progress, args=(p3, q3, (permutations + 2) / 3, paths))
+    proc1.start()
+    proc2.start()
+    proc3.start()
+
+    rand_es = q1.get()
+    rand_es2 = q2.get()
+    rand_es3 = q3.get()
+
+    proc1.join()
+    proc2.join()
+    proc3.join()
+    print "Total calculation time:",  time.time() - t
+
+    for path in rand_es:
+        rand_es[path] += rand_es2[path] + rand_es3[path]
+
+    """
+    rand_es = {}
     for pathway in paths:
         rand_es[pathway] = []
 
+    # perform permutations:
+    for i in range(permutations):
+        cluster.randomise_samples()
+        snr_dict = signal_to_noise(cluster)
+        for path in paths:
+            rand_es[path].append(enrichment_score(snr_dict, paths[path])[0])
+    """
 
+    # normalise scores for multiple testing comparison:
+    nes      = {}
+    rand_nes = {}
+    for pathway in paths:
+        nes[pathway], rand_nes[pathway] = normalise_es(es[pathway], rand_es[pathway])
+
+    # calculate FDR q value for each test:
+    qvalues = {}
+    all_rand_es = list(chain.from_iterable(rand_nes.values()))
+    for pathway in paths:
+        qvalues[pathway] = gsea_q(all_rand_es, nes[pathway], nes)
+
+    # calculate nominal normalised p values:
+    pvalues = {}
+    for pathway in paths:
+        pvalues[pathway] = nominal_p(nes[pathway], rand_nes[pathway])
+
+    return nes, pvalues, qvalues
+
+def permute_data(cluster, queue, permutations, paths ):
+    rand_es = {}
+    for pathway in paths:
+        rand_es[pathway] = []
+    for i in range(permutations):
+        cluster.randomise_samples()
+        snr_dict = signal_to_noise(cluster)
+        for path in paths:
+            rand_es[path].append(enrichment_score(snr_dict, paths[path]))
+    queue.put(rand_es)
+
+def permute_data_progress(cluster, queue, permutations, paths):
+    # initialise progress bar:
     bar = progressbar.ProgressBar(maxval=permutations, \
         widgets=[progressbar.Bar('=', '[', ']'), ' ', progressbar.ETA()]) # can also use progressbar.Percentage()
     pbcount=0
     bar.update(pbcount)
 
+    # perform permutations:
+    rand_es = {}
+    for pathway in paths:
+        rand_es[pathway] = []
     for i in range(permutations):
-        pbcount += 1
         cluster.randomise_samples()
         snr_dict = signal_to_noise(cluster)
-        for pathway in paths:
-            rand_es[pathway].append(enrichment_score(snr_dict, paths[pathway]))
+        for path in paths:
+            rand_es[path].append(enrichment_score(snr_dict, paths[path]))
+        pbcount += 1
         bar.update(pbcount)
     bar.finish()
 
-    pvalues = {}
-    for pathway in paths:
-        pvalues[pathway] = nominal_p(es[pathway], rand_es[pathway])
-
-    return es, pvalues
+    queue.put(rand_es)
 
 def irizarry_enrichment(t_dict, pathway_list):
     """ a scale-sensitive test using the chi-square distribution to test for enrichment of
@@ -1489,7 +1684,7 @@ def expression_peaks(cluster, magnitude, group1 = [ "SP", "SL06", "SL12", "SL24"
     print len(peaklist), "significant peaks found."
     return peaklist
 
-def p_to_q(pvalues):
+def p_to_q(pvalues, display_on=True):
     """
     Given the list of pvalues, convert to pFDR q-values.
     According to Storey and Tibshirani (2003) PNAS 100(16) : 9440
@@ -1511,28 +1706,62 @@ def p_to_q(pvalues):
     print "pi0_hardway length:", len(pi0_hardway)
     print "p_values size:", len(pvalues)
     # fit cubic spline to data, then calculate value of pi0 for lambda = 1:
-    tck = interpolate.splrep(lamrange, pi0_lam)
-    splinecurve = interpolate.splev(lamrange, tck, der=0)
+    tck = interpolate.splrep(lamrange, pi0_lam, s=3)
+    splinecurve = interpolate.splev(numpy.arange(0,1.0,0.01), tck, der=0)
     pi0_hat = interpolate.splev(1, tck, der=0)
 
-    plt.figure()
-    plt.plot(lamrange, pi0_hardway, 'r', lamrange, pi0_lam, 'go' ) # lamrange, splinecurve,  'go'
-    plt.xlabel("lambda")
-    plt.ylabel("value")
-    plt.title('pi0_hat(lambda) estimations')
-    plt.show()
+    if display_on:
+        fig = plt.figure()
+        ax1 = fig.add_subplot(111)
+        n, bins, patches = ax1.hist(pvalues, bins=20, facecolor='green')
+        plt.title('distribution of P-values')
+        ax1.set_xlabel('lambda / P-value')
+        ax1.set_ylabel('distribution #')
+
+        ax2 = ax1.twinx()
+        ax2.plot(lamrange, pi0_hardway, 'ro', numpy.arange(0,1.0,0.01), splinecurve, 'r' )
+        ax2.set_ylabel('pi0_hat(lambda)')
+        #ax1.plot(t, s1, 'b-')
+
+        plt.show()
 
 
     q_pm =  pi0_hat * pvalues[-1]    #  q(pm)
     # creates an ordered list of q(p(i)) values.
     q_pi_list = [q_pm] + [ (pi0_hat * len(pvalues)*pvalues[i])/i for i in range(len(pvalues)-1,1,-1)]
-    print q_pi_list[0:20], q_pi_list[-20:-1]
     # "The estimated q value for the ith most significant feature is q(p(i))"
     q_val = {}
     for i in range(len(pvalues)):
-        q_val[pvalues[-1 * i]] = min(q_pi_list[:i+1])
+        q_val[pvalues[-1 * (i+1)]] = min(q_pi_list[:i+1])
 
     return q_val
+
+def gsea_q(all_rand_nes, nes, nes_dict):
+    """Calculate the q-value for a given normalised enrichment score, a given
+    normalised permuted distribution and the normalised enrichment score distribution"""
+
+    if nes >= 0:
+        rand_gt_nes = float(len([ x for x in all_rand_nes if x >= nes if x >= 0]))
+        num_rand    = float(len([ x for x in all_rand_nes if x >= 0 ]))
+        alles_gt_nes= float(len([ x for x in nes_dict.values() if x >= nes if x >= 0 ]))
+        num_alles   = float(len([ x for x in nes_dict.values() if x >= 0 ]))
+        if alles_gt_nes == 0:   # this is to stop division by zero error
+            qvalue = 0
+        else:
+            qvalue = (rand_gt_nes / num_rand) / (alles_gt_nes / num_alles)
+
+
+    else:
+        rand_lt_nes = float(len([ x for x in all_rand_nes if x <= nes if x <= 0]))
+        num_rand    = float(len([ x for x in all_rand_nes if x <= 0 ]))
+        alles_lt_nes= float(len([ x for x in nes_dict.values() if x <= nes if x <= 0 ]))
+        num_alles   = float(len([ x for x in nes_dict.values() if x <= 0 ]))
+        if alles_lt_nes == 0:   # this is to stop division by zero error
+            qvalue = 0
+        else:
+            qvalue = (rand_lt_nes / num_rand) / (alles_lt_nes / num_alles)
+
+    return qvalue
 
 ################# Miscellaneous methods #############################################
 
@@ -1573,6 +1802,9 @@ def appendkegg(geneid, ko_dictionary):
         geneid = " ".join([geneid, ko_name[geneid]])
     return geneid
 
+# #                                                                              # #
+# #                                                                              # #
+# ############################## END FUNCTIONS ################################### #
 ####################################################################################
 
 if __name__ == '__main__':
@@ -1707,13 +1939,22 @@ if __name__ == '__main__':
 
     ## Gene Set Enrichment Analysis (cf Subramanian et al. (2005) PNAS 102(43)
     if args.GSEA:
-        es, pvalues = gene_set_enrichment(cluster, permutations=args.GSEA)
+        nes, pvalues, qvalues = gene_set_enrichment(cluster, permutations=args.GSEA)
         out_h = open(filename[:-4] + ".GSEA.list", 'w')
-        for pathway,escore in sorted(es.iteritems(), key=itemgetter(1)):
-            if pvalues[pathway] < 0.1:
-                out_h.write( "%-15s %-50s%s ES=%+8.4f   P=%8.4f\n" % (
+        # write all positive scores with q values less than 0.25 to file:
+        for pathway, qvalue in sorted(qvalues.iteritems(), key=itemgetter(1)):
+            if qvalue < 0.25 and nes[pathway] >= 0:
+                out_h.write( "%-15s %-50s%s ES=%+8.4f   P=%8.4f q=%8.4f\n" % (
                     pathway[0], pathway[1][:50], '...' if len(pathway[1])>50 else '   ',
-                    escore, pvalues[pathway]))
+                    nes[pathway], pvalues[pathway], qvalue))
+
+        # write all negative scores with q values less than 0.25 to file:
+        for pathway, qvalue in sorted(qvalues.iteritems(), key=itemgetter(1)):
+            if qvalue < 0.25 and nes[pathway] < 0:
+                out_h.write( "%-15s %-50s%s ES=%+8.4f   P=%8.4f q=%8.4f\n" % (
+                    pathway[0], pathway[1][:50], '...' if len(pathway[1])>50 else '   ',
+                    nes[pathway], pvalues[pathway], qvalue))
+
         out_h.close()
 
     if args.irizarry:
@@ -1739,27 +1980,32 @@ if __name__ == '__main__':
     if args.irizarry_z:
         print "Calculating Irizarry gene enrichment..."
         t_dict = find_degs(cluster, group1="_FL", group2="_SP")
+        #s_dict = signal_to_noise(cluster)
         pvalues = {}
         paths = {}
         print "Calculating pathway enrichment scores..."
+        # extract all pathway genelists:
         paths, smallpaths = genematch.collect_kegg_pathways(minsize=10)
         paths.update(smallpaths)
         paths.update(genematch.collect_ipr_pathways(minsize=10))
         paths.update(genematch.collect_go_pathways(minsize=10) )
+        # calculate enrichment score:
         for pathway in paths:
             pvalues[pathway] = irizarry_enrichment_z(t_dict, paths[pathway])
+
+        # calculate q-values for the list of p-values:
+        qvalues = p_to_q(pvalues.values(), display_on=not(args.display_off))
+        for p,q in sorted(qvalues.iteritems()):
+            if  0.95 < p <= 0.05:
+                print "%-8.4f %-.4f" % (p, qvalues[p])
+
         out_h = open(filename[:-4] + ".GSEA_Irizarry_z.list", 'w')
         for pathway,pval in sorted(pvalues.iteritems(), key=itemgetter(1)):
             if pvalues[pathway] <= 0.05:
-                out_h.write( "%-15s %-50s%s P=%8.4f\n" % (
+                out_h.write( "%-15s %-50s%s P=%7.4f q=%7.4f\n" % (
                     pathway[0], pathway[1][:50], '...' if len(pathway[1])>50 else '   ',
-                    pval))
+                    pval, qvalues[pval]))
         out_h.close()
-
-        randomps = numpy.random.random(5000)
-        qvalues = p_to_q(pvalues.values())
-        for p,q in sorted(qvalues.iteritems()):
-            print "%-8.4f %-.4f" % (p, qvalues[p])
 
     ## Principal Component Analysis:
     if args.pca:
