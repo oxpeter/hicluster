@@ -38,7 +38,6 @@ from statsmodels.stats.multicomp import pairwise_tukeyhsd
 
 
 from genomepy import genematch
-import progressbar              # from Nilton Volpato
 
 ####################################################################################
 # ############################### CLASSES ######################################## #
@@ -1501,25 +1500,38 @@ def permute_data(cluster, queue, permutations, paths ):
     queue.put(rand_es)
 
 def permute_data_progress(cluster, queue, permutations, paths):
-    # initialise progress bar:
-    bar = progressbar.ProgressBar(maxval=permutations, \
-        widgets=[progressbar.Bar('=', '[', ']'), ' ', progressbar.ETA()]) # can also use progressbar.Percentage()
-    pbcount=0
-    bar.update(pbcount)
 
     # perform permutations:
     rand_es = {}
     for pathway in paths:
         rand_es[pathway] = []
     numpy.random.seed(os.getpid())
+    tstart = time.time()
+    pbcount = 0
     for i in range(permutations):
+        if pbcount > 0:
+            time_elapsed = time.time() - tstart
+            time_per_cycle = 1. *  time_elapsed / pbcount
+            time_remaining = (permutations - pbcount) * time_per_cycle
+            m, s = divmod(time_remaining, 60)
+            h, m = divmod(m, 60)
+            if pbcount > 0:
+                print '\r>> %d of %d cycles complete. ETA to completion: %d:%02d:%02d                      ' % (pbcount, permutations, h, m, s),
+            sys.stdout.flush()
+        else:
+            time_remaining = permutations * 40
+            m, s = divmod(time_remaining, 60)
+            h, m = divmod(m, 60)
+            print '>> 0 of %d cycles complete. Completion in approx: %d:%02d:%02d                      ' % (permutations, h, m, s),
+            sys.stdout.flush()
         cluster.randomise_samples()
         snr_dict = signal_to_noise(cluster)
         for path in paths:
             rand_es[path].append(enrichment_score(snr_dict, paths[path]))
         pbcount += 1
-        bar.update(pbcount)
-    bar.finish()
+
+
+
 
     queue.put(rand_es)
 
