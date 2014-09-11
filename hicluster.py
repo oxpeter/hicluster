@@ -17,7 +17,7 @@ import time
 import sys, os, re
 import getopt
 import argparse
-import multiprocessing
+from multiprocessing import Queue, Process
 from operator import itemgetter
 from itertools import chain, repeat
 
@@ -1354,9 +1354,9 @@ def nominal_p(score, distribution):
     "Given the empirical score, and permuted distribution, calculate the P value of score"
 
     if score >= 0:
-        beatenby = len([x for x in distribution if score < x])
+        beatenby = len([x for x in distribution if x >= score])
     else:
-        beatenby = len([x for x in distribution if score > x])
+        beatenby = len([x for x in distribution if x <= score])
 
     return 1.0 * beatenby / len(distribution)
 
@@ -1374,6 +1374,7 @@ def normalise_es(score, distribution):
     direction of the score, +ve or -ve.
 
     """
+
     # find average of all permutations from +ve distribution:
     exp_es_plus  = numpy.mean([x for x in distribution if  x >= 0])
     # find average of all permutations from -ve distribution:
@@ -1384,7 +1385,6 @@ def normalise_es(score, distribution):
         nes = 1.0 * score / exp_es_plus
     else:
         nes = -1.0 * score / exp_es_minus
-    #print "#1 %+6.4f %6.4f %r" % (score, nes, distribution)
 
     # normalise permutation distribution:
     for res, posn in zip(distribution[:],range(len(distribution))):
@@ -1392,10 +1392,9 @@ def normalise_es(score, distribution):
             distribution[posn] = res / exp_es_plus
         else:
             distribution[posn] = -1.0 * res / exp_es_minus
-    #print "#2 %+6.4f %6.4f %r" % (score, nes, distribution)
     return nes, distribution
 
-def gene_set_enrichment(cluster, permutations=1000):
+def gene_set_enrichment(cluster, permutations=1000, processes=3, display_on=True):
     print "\nPerforming gene set enrichment analysis."
     snr_dict = signal_to_noise(cluster)
 
@@ -1411,47 +1410,38 @@ def gene_set_enrichment(cluster, permutations=1000):
         es[pathway] = enrichment_score(snr_dict, paths[pathway])
 
     # computing significance:
-    print "Permuting pathways %d times" % args.GSEA
+    print "Permuting pathways %d times" % permutations
 
     t = time.time()
-    p1 = Permutable(cluster)
-    p2 = Permutable(cluster)
-    p3 = Permutable(cluster)
-    q1 = multiprocessing.Queue()
-    q2 = multiprocessing.Queue()
-    q3 = multiprocessing.Queue()
 
-    proc1 = multiprocessing.Process(target=permute_data, args=(p1, q1, (permutations + 2) / 3, paths))
-    proc2 = multiprocessing.Process(target=permute_data, args=(p2, q2, (permutations + 2) / 3, paths))
-    proc3 = multiprocessing.Process(target=permute_data_progress, args=(p3, q3, (permutations + 2) / 3, paths))
-    proc1.start()
-    proc2.start()
-    proc3.start()
+    p = {}
+    q = {}
+    proc = {}
+    rand_es_dict = {}
+    for n in range(processes):
+        p[n] = Permutable(cluster)
+        q[n] = Queue()
+        proc[n] = Process(target=permute_data, args=(p[n], q[n], (permutations + processes - 1) / processes, paths))
+    # change last process to run with progress bar:
+    proc[n] = Process(target=permute_data_progress, args=(p[n], q[n], (permutations + processes - 1) / processes, paths))
 
-    rand_es = q1.get()
-    rand_es2 = q2.get()
-    rand_es3 = q3.get()
+    for n in range(processes):
+        proc[n].start()
 
-    proc1.join()
-    proc2.join()
-    proc3.join()
+    for n in range(processes):
+        rand_es_dict[n] = q[n].get()
+        proc[n].join()
+
+        if (n+1) in rand_es_dict:
+            if rand_es_dict[n] == rand_es_dict[n + 1]:
+                print "*** WARNING: PERMUTATIONS ARE NOT RANDOM! ***"
     print "Total calculation time:",  time.time() - t
 
-    for path in rand_es:
-        rand_es[path] += rand_es2[path] + rand_es3[path]
-
-    """
     rand_es = {}
-    for pathway in paths:
-        rand_es[pathway] = []
-
-    # perform permutations:
-    for i in range(permutations):
-        cluster.randomise_samples()
-        snr_dict = signal_to_noise(cluster)
-        for path in paths:
-            rand_es[path].append(enrichment_score(snr_dict, paths[path])[0])
-    """
+    for path in rand_es_dict[0]:
+        rand_es[path] = rand_es_dict[0][path]
+        for n in range(processes)[1:]:
+            rand_es[path] += rand_es_dict[n][path]
 
     # normalise scores for multiple testing comparison:
     nes      = {}
@@ -1461,9 +1451,35 @@ def gene_set_enrichment(cluster, permutations=1000):
 
     # calculate FDR q value for each test:
     qvalues = {}
-    all_rand_es = list(chain.from_iterable(rand_nes.values()))
+    all_rand_nes = list(chain.from_iterable(rand_nes.values()))
+
+    if display_on:
+        bins = numpy.linspace(-2, 2, 100)
+        cleaned_es = [x for x in nes.values() if x != 'nan']
+        fig = plt.figure()
+        ax1 = fig.add_subplot(111)
+        n, bins, patches = ax1.hist(all_rand_nes,
+                weights=numpy.zeros_like(all_rand_nes) + 100. / len(all_rand_nes),
+                bins=bins, facecolor='green', alpha=0.5)
+        n, bins, patches = ax1.hist(cleaned_es,
+                weights=numpy.zeros_like(cleaned_es) + 100. / len(cleaned_es),
+                bins=bins, facecolor='red', alpha=0.5)
+        plt.title('distribution of normalised enrichment scores')
+        ax1.set_xlabel('ES')
+        ax1.set_ylabel('#')
+        plt.show()
+    #plt.figure()
+    #bins = numpy.linspace(-2, 2, 100)
+    #plt.hist(all_rand_nes, bins=bins, facecolor='green', alpha=0.5)
+    #plt.hist([x for x in nes.values() if x != 'nan'], bins=bins, facecolor='red', alpha=0.5)
+    #plt.title('distribution of permuted normalised enrichment scores')
+    #plt.set_xlabel('ES')
+    #plt.set_ylabel('#')
+
+
+
     for pathway in paths:
-        qvalues[pathway] = gsea_q(all_rand_es, nes[pathway], nes)
+        qvalues[pathway] = gsea_q(all_rand_nes, nes[pathway], nes)
 
     # calculate nominal normalised p values:
     pvalues = {}
@@ -1476,6 +1492,7 @@ def permute_data(cluster, queue, permutations, paths ):
     rand_es = {}
     for pathway in paths:
         rand_es[pathway] = []
+    numpy.random.seed(os.getpid())
     for i in range(permutations):
         cluster.randomise_samples()
         snr_dict = signal_to_noise(cluster)
@@ -1494,6 +1511,7 @@ def permute_data_progress(cluster, queue, permutations, paths):
     rand_es = {}
     for pathway in paths:
         rand_es[pathway] = []
+    numpy.random.seed(os.getpid())
     for i in range(permutations):
         cluster.randomise_samples()
         snr_dict = signal_to_noise(cluster)
@@ -1834,6 +1852,7 @@ if __name__ == '__main__':
     parser.add_argument("--neighbours", type=str, help="returns a list of the N closest neighbours to specified genes.")
     parser.add_argument("-N", "--num_neighbours", type=int, default=10, help="specify the number of nearest neighbours to return. Default is 10.")
     parser.add_argument("--GSEA", type=int, help='performs gene set enrichment analysis')
+    parser.add_argument("--processes", type=int, default=1, help="specify the number of processes to split the permutations over. Default is 1")
     parser.add_argument("--irizarry", action='store_true', help="performs gene set enrichment analysis according to Irizarry's scale sensitive chi square statistic")
     parser.add_argument("--irizarry_z", action='store_true', help="performs gene set enrichment analysis according to Irizarry's z statistic")
     # viewing options
@@ -1939,19 +1958,19 @@ if __name__ == '__main__':
 
     ## Gene Set Enrichment Analysis (cf Subramanian et al. (2005) PNAS 102(43)
     if args.GSEA:
-        nes, pvalues, qvalues = gene_set_enrichment(cluster, permutations=args.GSEA)
+        nes, pvalues, qvalues = gene_set_enrichment(cluster, permutations=args.GSEA, processes=args.processes, display_on=not(args.display_off))
         out_h = open(filename[:-4] + ".GSEA.list", 'w')
         # write all positive scores with q values less than 0.25 to file:
         for pathway, qvalue in sorted(qvalues.iteritems(), key=itemgetter(1)):
-            if qvalue < 0.25 and nes[pathway] >= 0:
-                out_h.write( "%-15s %-50s%s ES=%+8.4f   P=%8.4f q=%8.4f\n" % (
+            if qvalue <= 0.25 and nes[pathway] >= 0:
+                out_h.write( "%-15s %-50s%s ES=%+6.3f P=%8.3e q=%8.4f\n" % (
                     pathway[0], pathway[1][:50], '...' if len(pathway[1])>50 else '   ',
                     nes[pathway], pvalues[pathway], qvalue))
 
         # write all negative scores with q values less than 0.25 to file:
-        for pathway, qvalue in sorted(qvalues.iteritems(), key=itemgetter(1)):
-            if qvalue < 0.25 and nes[pathway] < 0:
-                out_h.write( "%-15s %-50s%s ES=%+8.4f   P=%8.4f q=%8.4f\n" % (
+        for pathway, qvalue in sorted(qvalues.iteritems(), key=itemgetter(1), reverse=True):
+            if qvalue <= 0.25 and nes[pathway] < 0:
+                out_h.write( "%-15s %-50s%s ES=%+6.3f P=%8.3e q=%8.4f\n" % (
                     pathway[0], pathway[1][:50], '...' if len(pathway[1])>50 else '   ',
                     nes[pathway], pvalues[pathway], qvalue))
 
