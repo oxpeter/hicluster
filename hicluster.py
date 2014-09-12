@@ -1340,13 +1340,13 @@ def enrichment_score( snr_dict, pathway_list, rho=1, pathway='unknown', display_
     correlation = []
     count = 0
     Nr = sum( abs(snr_dict[g])**rho for g in pathway_list if g in snr_dict)
+    pathway_size = sum([1 for gene in pathway_list if gene in snr_dict])
     for gene, value in sorted_genes:
         if gene in pathway_list:
             ES.append(ES[-1] + (abs(snr_dict[gene])**rho)/Nr )
             genespot.append(count)
         else:
-            ES.append( ES[-1] - 1./(len(snr_dict)-sum(
-                    [1 for gene in pathway_list if gene in snr_dict])) )
+            ES.append( ES[-1] - 1. / (len(snr_dict) - pathway_size) )
         correlation.append(value)
         count += 1
 
