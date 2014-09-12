@@ -1423,13 +1423,18 @@ def gene_set_enrichment(cluster, permutations=1000, processes=3, display_on=True
     es = {}
     paths = {}
     print "Calculating pathway enrichment scores..."
-    paths, smallpaths = genematch.collect_kegg_pathways(minsize=10)
-    paths.update(smallpaths)
-    paths.update(genematch.collect_ipr_pathways(minsize=10))
-    paths.update(genematch.collect_go_pathways(minsize=10) )
+    opaths, smallpaths = genematch.collect_kegg_pathways(minsize=10)
+    opaths.update(smallpaths)
+    opaths.update(genematch.collect_ipr_pathways(minsize=10))
+    opaths.update(genematch.collect_go_pathways(minsize=10) )
 
-    for pathway in paths:
+    # some pathways will have less genes than reported, as the gene expression for some
+    # will mean they were filtered out. So the final pathway set must be checked for
+    # genes in which there are insufficient number from this filtering:
+    paths = {}
+    for pathway in opaths:
         if sum([1 for gene in paths[pathway] if gene in snr_dict]) >= 10:
+            paths[pathway] = opaths[pathway]
             es[pathway] = enrichment_score(snr_dict, paths[pathway], pathway=pathway, display_on=display_on)
 
     # computing significance:
