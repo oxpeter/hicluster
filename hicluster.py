@@ -1433,7 +1433,7 @@ def gene_set_enrichment(cluster, permutations=1000, processes=3, display_on=True
     # genes in which there are insufficient number from this filtering:
     paths = {}
     for pathway in opaths:
-        if sum([1 for gene in paths[pathway] if gene in snr_dict]) >= 10:
+        if sum([1 for gene in opaths[pathway] if gene in snr_dict]) >= 10:
             paths[pathway] = opaths[pathway]
             es[pathway] = enrichment_score(snr_dict, paths[pathway], pathway=pathway, display_on=display_on)
 
