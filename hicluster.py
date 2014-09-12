@@ -1196,7 +1196,7 @@ def analyse_pca(cluster, three_dim=True):
         plt.close()
     return matrix_reduced
 
-def expression_dist(cluster, max_x=500, min_x=0, histo=False):
+def expression_dist(cluster, max_x=500, min_x=0, hist=False):
     "Creates histogram of gene expression"
 
     count = 0
@@ -1212,7 +1212,7 @@ def expression_dist(cluster, max_x=500, min_x=0, histo=False):
 
     plt.show()
 
-    if histo:
+    if hist:
         for row in cluster.data_matrix:
             fig = plt.figure()
             subf = fig.add_subplot(111, title=cluster.row_header[count])
@@ -1314,7 +1314,7 @@ def signal_to_noise(cluster, groups=["_SP", "_FL"], verbose=False):
         if exstdev[1] < 0.2 * exmeans[1]:
             exstdev[1] = 0.2 * exmeans[1]
 
-        snr_dict[cluster.gene_header[g]] =  exmeans[0] - exmeans[1] / sum(exstdev)
+        snr_dict[cluster.gene_header[g]] =  (exmeans[0] - exmeans[1]) / sum(exstdev)
 
     # if matrix was inverted for gene removal, restore to its previous orientation:
     if revert:
@@ -1322,7 +1322,7 @@ def signal_to_noise(cluster, groups=["_SP", "_FL"], verbose=False):
 
     return snr_dict
 
-def enrichment_score( snr_dict, pathway_list, rho=1):
+def enrichment_score( snr_dict, pathway_list, rho=1, pathway='unknown', display_on=False):
     """
     calculate the enrichment score for a pathway. Genes in the pathway are specified in
     pathway_list. The correlation of genotype to phenotype is the signal to noise ratio,
@@ -1334,19 +1334,42 @@ def enrichment_score( snr_dict, pathway_list, rho=1):
     functions know which pathway the pathway list came from
     """
 
-    sorted_genes = ( gene for gene, value in sorted(snr_dict.iteritems(), key=itemgetter(1)) )
+    sorted_genes = ( (gene, value) for gene, value in sorted(snr_dict.iteritems(), key=itemgetter(1), reverse=True) )
     ES = [0]
+    genespot = []
+    correlation = []
+    count = 0
     Nr = sum( abs(snr_dict[g])**rho for g in pathway_list if g in snr_dict)
-    for gene in sorted_genes:
+    for gene, value in sorted_genes:
         if gene in pathway_list:
             ES.append(ES[-1] + (abs(snr_dict[gene])**rho)/Nr )
+            genespot.append(count)
         else:
-            ES.append( ES[-1] - 1./(len(snr_dict)-len(pathway_list)) )
+            ES.append( ES[-1] - 1./(len(snr_dict)-sum(
+                    [1 for gene in pathway_list if gene in snr_dict])) )
+        correlation.append(value)
+        count += 1
 
     if max(ES[1:]) > abs(min(ES[1:])):
         maxdev = max(ES[1:])
     else:
         maxdev = min(ES[1:])
+
+
+    if display_on and maxdev > 0.5:
+        plt.figure()
+        ax1 = plt.subplot2grid((3,3),(0,0), rowspan=2, colspan=3)
+        ax1.plot(range(len(ES) - 1), ES[1:], 'r', genespot, [0 for x in genespot], 'g^')
+        ax1.set_ylabel('Enrichment Score (ES)')
+        ax2 = plt.subplot2grid((3,3),(2,0), colspan=3)
+        ax2.fill_between(range(len(correlation)), 0, correlation, facecolor='cyan')
+        ax2.set_xlabel('Gene (ordered by signal-to-noise ratio)')
+        ax2.set_ylabel('Correlation')
+        ax1.axes.get_xaxis().set_ticks([])
+        ax2.axes.get_xaxis().set_ticks([])
+        plt.suptitle("GSEA for %-15s %-50s%s" %
+            (pathway[0], pathway[1][:50], '...' if len(pathway[1])>50 else '   '))
+        plt.show()
     return  maxdev
 
 def nominal_p(score, distribution):
@@ -1406,7 +1429,8 @@ def gene_set_enrichment(cluster, permutations=1000, processes=3, display_on=True
     paths.update(genematch.collect_go_pathways(minsize=10) )
 
     for pathway in paths:
-        es[pathway] = enrichment_score(snr_dict, paths[pathway])
+        if sum([1 for gene in paths[pathway] if gene in snr_dict]) >= 10:
+            es[pathway] = enrichment_score(snr_dict, paths[pathway], pathway=pathway, display_on=display_on)
 
     # computing significance:
     print "Permuting pathways %d times" % permutations
@@ -1434,7 +1458,10 @@ def gene_set_enrichment(cluster, permutations=1000, processes=3, display_on=True
         if (n+1) in rand_es_dict:
             if rand_es_dict[n] == rand_es_dict[n + 1]:
                 print "*** WARNING: PERMUTATIONS ARE NOT RANDOM! ***"
-    print "Total calculation time:",  time.time() - t
+    calc_time = time.time() - t
+    m, s = divmod(calc_time, 60)
+    h, m = divmod(m, 60)
+    print "Total calculation time: %d:%02d:%02d" % (h, m, s)
 
     rand_es = {}
     for path in rand_es_dict[0]:
@@ -1452,20 +1479,23 @@ def gene_set_enrichment(cluster, permutations=1000, processes=3, display_on=True
     qvalues = {}
     all_rand_nes = list(chain.from_iterable(rand_nes.values()))
 
+
+    pp = PdfPages(cluster.exportPath[0:-4] + '.GSEA_permutations.pdf')
+    bins = numpy.linspace(-2, 2, 100)
+    cleaned_es = [x for x in nes.values() if x != 'nan']
+    fig = plt.figure()
+    ax1 = fig.add_subplot(111)
+    n, bins, patches = ax1.hist(all_rand_nes,
+            weights=numpy.zeros_like(all_rand_nes) + 100. / len(all_rand_nes),
+            bins=bins, facecolor='green', alpha=0.5)
+    n, bins, patches = ax1.hist(cleaned_es,
+            weights=numpy.zeros_like(cleaned_es) + 100. / len(cleaned_es),
+            bins=bins, facecolor='red', alpha=0.5)
+    plt.title('distribution of normalised enrichment scores')
+    ax1.set_xlabel('ES')
+    ax1.set_ylabel('#')
+    plt.savefig(pp, format='pdf')
     if display_on:
-        bins = numpy.linspace(-2, 2, 100)
-        cleaned_es = [x for x in nes.values() if x != 'nan']
-        fig = plt.figure()
-        ax1 = fig.add_subplot(111)
-        n, bins, patches = ax1.hist(all_rand_nes,
-                weights=numpy.zeros_like(all_rand_nes) + 100. / len(all_rand_nes),
-                bins=bins, facecolor='green', alpha=0.5)
-        n, bins, patches = ax1.hist(cleaned_es,
-                weights=numpy.zeros_like(cleaned_es) + 100. / len(cleaned_es),
-                bins=bins, facecolor='red', alpha=0.5)
-        plt.title('distribution of normalised enrichment scores')
-        ax1.set_xlabel('ES')
-        ax1.set_ylabel('#')
         plt.show()
     #plt.figure()
     #bins = numpy.linspace(-2, 2, 100)
