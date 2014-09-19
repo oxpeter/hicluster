@@ -855,14 +855,16 @@ def heatmap(cluster, display=True,kegg=False, go=False):
         print "\nPerforming GO enrichment analysis for %d groups" % (len(genelistd))
         out_h = open(cluster.exportPath[:-4] + ".GO_enrichment.list", 'w')
 
-        out_h.write("Group GOterm P-value\n")
+        out_h.write("%-4s %-11s %-7s %-7s %s\n" % ("Grp", "GO-term", "p-value", "q-value", "Definition"))
         go_monster = genematch.GO_maker()
         # perform hypergeometric test (one-sided fishers exact test) on each group:
         for group in genelistd:
+            out_h.write('%s\n' % ("#" * 15))
             gops = genematch.go_enrichment(genelistd[group])
+            qvalues = p_to_q(gops.values(), display_on=False)
             for goterm in gops:
-                if gops[goterm] < 0.05: # this is a very weak threshold. Will need to do multiple test adjustment!
-                    out_h.write( "%-4s %-7s %.5f %s\n" % (group, goterm, gops[goterm], str(go_monster.define_go(goterm))) )
+                if qvalues[gops[goterm]] <= go:
+                    out_h.write( "%-4s %-11s %.5f %.5f %s\n" % (group, goterm, gops[goterm], qvalues[gops[goterm]], str(go_monster.define_go(goterm))) )
                     # modify gene header by appending go term to gene name
                     even_newer_header = new_column_header
                     new_column_header[:] = [ appendgo(geneid, goterm, go_monster) for geneid in new_column_header ]
@@ -889,11 +891,12 @@ def heatmap(cluster, display=True,kegg=False, go=False):
         out_h.write("Group KEGG pathway P-value\n")
 
         for group in genelistd:
-            pathway_ps, gene_kos = genematch.kegg_pathway_enrichment(genelistd[group], kegg)
+            pathway_ps, gene_kos = genematch.kegg_pathway_enrichment(genelistd[group], pthresh=kegg)
             #gops = genematch.go_enrichment(genelistd[group])
+            qvalues = p_to_q(pathway_ps.values(), display_on=False)
             for ko in pathway_ps:
-                if pathway_ps[ko] < 0.05: # this is a very weak threshold. Will need to do multiple test adjustment!
-                    out_h.write( "%-4s %-7s %.5f %s\n" % (group, goterm, pathway_ps[ko]) )
+                if qvalues[pathway_ps[ko]] <= kegg:
+                    out_h.write( "# %-4s %-7s %.5f %s\n" % (group, goterm, pathway_ps[ko]) )
 
         even_newer_header = new_column_header
         new_column_header[:] = [ appendkegg(geneid, gene_kos) for geneid in new_column_header ]
@@ -1356,7 +1359,7 @@ def enrichment_score( snr_dict, pathway_list, rho=1, pathway='unknown', display_
         maxdev = min(ES[1:])
 
 
-    if display_on and maxdev > 0.5:
+    if  display_on:
         plt.figure()
         ax1 = plt.subplot2grid((3,3),(0,0), rowspan=2, colspan=3)
         ax1.plot(range(len(ES) - 1), ES[1:], 'r', genespot, [0 for x in genespot], 'g^')
@@ -1416,27 +1419,25 @@ def normalise_es(score, distribution):
             distribution[posn] = -1.0 * res / exp_es_minus
     return nes, distribution
 
-def gene_set_enrichment(cluster, permutations=1000, processes=3, display_on=True):
-    print "\nPerforming gene set enrichment analysis."
+def gene_set_enrichment(cluster, permutations=1000, processes=3, display_on=True, showbest=5):
+    print "\n## Performing gene set enrichment analysis ##"
     snr_dict = signal_to_noise(cluster)
 
-    es = {}
-    paths = {}
     print "Calculating pathway enrichment scores..."
     opaths, smallpaths = genematch.collect_kegg_pathways(minsize=10)
     opaths.update(smallpaths)
     opaths.update(genematch.collect_ipr_pathways(minsize=10))
     opaths.update(genematch.collect_go_pathways(minsize=10) )
-
     # some pathways will have less genes than reported, as the gene expression for some
     # will mean they were filtered out. So the final pathway set must be checked for
     # genes in which there are insufficient number from this filtering:
     paths = {}
+    es = {}
     for pathway in opaths:
         if sum([1 for gene in opaths[pathway] if gene in snr_dict]) >= 10:
             paths[pathway] = opaths[pathway]
-            es[pathway] = enrichment_score(snr_dict, paths[pathway], pathway=pathway, display_on=display_on)
-
+            es[pathway] = enrichment_score(snr_dict, paths[pathway], pathway=pathway, display_on=False)
+    print paths.keys()[:5]
     # computing significance:
     print "Permuting pathways %d times" % permutations
 
@@ -1502,14 +1503,12 @@ def gene_set_enrichment(cluster, permutations=1000, processes=3, display_on=True
     plt.savefig(pp, format='pdf')
     if display_on:
         plt.show()
-    #plt.figure()
-    #bins = numpy.linspace(-2, 2, 100)
-    #plt.hist(all_rand_nes, bins=bins, facecolor='green', alpha=0.5)
-    #plt.hist([x for x in nes.values() if x != 'nan'], bins=bins, facecolor='red', alpha=0.5)
-    #plt.title('distribution of permuted normalised enrichment scores')
-    #plt.set_xlabel('ES')
-    #plt.set_ylabel('#')
 
+    # display ES for best candidates:
+    if display_on and showbest > 0:
+        for pathway, escore in [(pathway, escore) for pathway, escore in sorted(
+                nes.iteritems(), key=itemgetter(1), reverse=True)][:showbest]:
+            es = enrichment_score(snr_dict, paths[pathway], pathway=pathway, display_on=True)
 
 
     for pathway in paths:
@@ -1749,10 +1748,12 @@ def expression_peaks(cluster, magnitude, group1 = [ "SP", "SL06", "SL12", "SL24"
     print len(peaklist), "significant peaks found."
     return peaklist
 
-def p_to_q(pvalues, display_on=True):
+def p_to_q(pvalues, display_on=False):
     """
     Given the list of pvalues, convert to pFDR q-values.
     According to Storey and Tibshirani (2003) PNAS 100(16) : 9440
+
+    returns: { p-value:q-value }
 
     """
     # order p-values:
@@ -1761,33 +1762,43 @@ def p_to_q(pvalues, display_on=True):
     # estimate pi0:
     # evaluate pi0 across the range of lambda:
     lamrange = numpy.arange(0,0.95,0.01)
-    pbeaters = [ sum( p > lam for p in pvalues) for lam in lamrange ]
-    denominator = [ (len(pvalues) * (1 - lam)) for lam in lamrange ]
+    #pbeaters = [ sum( p > lam for p in pvalues) for lam in lamrange ]
+    #denominator = [ (len(pvalues) * (1 - lam)) for lam in lamrange ]
     pi0_lam = [ (sum( p > lam for p in pvalues) / (len(pvalues) * (1 - lam))) for lam in lamrange ]
-    pi0_hardway = []
-    for i in range(len(pbeaters)):
-        pi0_hardway += [ pbeaters[i] / denominator[i] ]
+    #pi0_hardway = []
 
-    print "pi0_hardway length:", len(pi0_hardway)
-    print "p_values size:", len(pvalues)
+    #for i in range(len(pbeaters)):
+    #    pi0_hardway += [ pbeaters[i] / denominator[i] ]
+    #if pi0_lam != pi0_hardway:
+    #    print "\n\n\npi0_lam is not the same as pi0_hardway!\n\n"
+    #print "pi0_hardway length:", len(pi0_hardway)
+    #print "p_values size:", len(pvalues)
     # fit cubic spline to data, then calculate value of pi0 for lambda = 1:
     tck = interpolate.splrep(lamrange, pi0_lam, s=3)
     splinecurve = interpolate.splev(numpy.arange(0,1.0,0.01), tck, der=0)
     pi0_hat = interpolate.splev(1, tck, der=0)
-
+    tck_half = 0
+    if pi0_hat > 1:
+        tck_half = interpolate.splrep(lamrange[:85], pi0_lam[:85], s=3)
+        spline_half = interpolate.splev(numpy.arange(0,1.0,0.01), tck_half, der=0)
+        pi0_hat_half = interpolate.splev(1, tck_half, der=0)
+        pi0_hat = pi0_hat_half
+        print "pi0_hat > 1! Likely skewed P-value distribution. Converting to ", pi0_hat_half
     if display_on:
         fig = plt.figure()
         ax1 = fig.add_subplot(111)
-        n, bins, patches = ax1.hist(pvalues, bins=20, facecolor='green')
+        n, bins, patches = ax1.hist(pvalues, bins=20, facecolor='green', label="P-values")
         plt.title('distribution of P-values')
         ax1.set_xlabel('lambda / P-value')
         ax1.set_ylabel('distribution #')
-
+        plt.legend(loc=4)
         ax2 = ax1.twinx()
-        ax2.plot(lamrange, pi0_hardway, 'ro', numpy.arange(0,1.0,0.01), splinecurve, 'r' )
+        ax2.plot(lamrange, pi0_lam, 'ro', numpy.arange(0,1.0,0.01), splinecurve, 'r', label='pi0_hat, s=3' )
+        if tck_half != 0:
+            ax2.plot(lamrange[:95], spline_half[:95], 'b', label='lambda < 0.85')
         ax2.set_ylabel('pi0_hat(lambda)')
         #ax1.plot(t, s1, 'b-')
-
+        plt.legend(loc=1)
         plt.show()
 
 
@@ -1810,10 +1821,8 @@ def gsea_q(all_rand_nes, nes, nes_dict):
         num_rand    = float(len([ x for x in all_rand_nes if x >= 0 ]))
         alles_gt_nes= float(len([ x for x in nes_dict.values() if x >= nes if x >= 0 ]))
         num_alles   = float(len([ x for x in nes_dict.values() if x >= 0 ]))
-        if alles_gt_nes == 0:   # this is to stop division by zero error
-            qvalue = 0
-        else:
-            qvalue = (rand_gt_nes / num_rand) / (alles_gt_nes / num_alles)
+
+        qvalue = (rand_gt_nes / num_rand) * (num_alles / alles_gt_nes)
 
 
     else:
@@ -1821,10 +1830,8 @@ def gsea_q(all_rand_nes, nes, nes_dict):
         num_rand    = float(len([ x for x in all_rand_nes if x <= 0 ]))
         alles_lt_nes= float(len([ x for x in nes_dict.values() if x <= nes if x <= 0 ]))
         num_alles   = float(len([ x for x in nes_dict.values() if x <= 0 ]))
-        if alles_lt_nes == 0:   # this is to stop division by zero error
-            qvalue = 0
-        else:
-            qvalue = (rand_lt_nes / num_rand) / (alles_lt_nes / num_alles)
+
+        qvalue = (rand_lt_nes / num_rand) * (num_alles / alles_lt_nes)
 
     return qvalue
 
@@ -1890,12 +1897,12 @@ if __name__ == '__main__':
     parser.add_argument("-r", "--sample_metric", type=str, default='correlation', help="The distance metric for samples \n(euclidean, correlation, cosine, manhattan, etc)")
     parser.add_argument("-g", "--gene_metric", type=str, default='correlation', help="The distance metric for genes \n(euclidean, correlation, manhattan, etc)")
     parser.add_argument("-P", "--pca", action='store_true',  help="Performs principal component analysis.")
-    parser.add_argument("-a", "--anova", type=float,  help="Perform ANOVA on 10 groups, and report genes with P-value less than value specified")
-    parser.add_argument("-A", "--filter_anova", type=float, help="Perform ANOVA and filter genes to keep only those with P-value less than value given")
-    parser.add_argument("-s", "--t_test", type=float,  help="Perform student's t-test on two groups, and report genes with P-value less than value specified")
-    parser.add_argument("-S", "--filter_t", type=float, dest="ttest_thresh", help="Perform student's t-test and filter genes to keep only those with P-value less than value given")
-    parser.add_argument("-K", "--kegg", type=float, help="Perform KEGG pathway enrichment analysis on gene clusters using specified p-value")
-    parser.add_argument("-E", "--go_enrichment", action='store_true', help="Perform GO term enrichment analysis on gene clusters")
+    parser.add_argument("-a", "--anova", type=float,  help="Perform ANOVA on 10 groups, and report genes with q-value less than value specified")
+    parser.add_argument("-A", "--filter_anova", type=float, help="Perform ANOVA and filter genes to keep only those with q-value less than value given")
+    parser.add_argument("-s", "--t_test", type=float,  help="Perform student's t-test on two groups, and report genes with q-value less than value specified")
+    parser.add_argument("-S", "--filter_t", type=float, dest="ttest_thresh", help="Perform student's t-test and filter genes to keep only those with q-value less than value given")
+    parser.add_argument("-K", "--kegg", type=float, help="Perform KEGG pathway enrichment analysis on gene clusters. Outputs KEGG terms less than specified q-value")
+    parser.add_argument("-E", "--go_enrichment", type=float, help="Perform GO term enrichment analysis on gene clusters. Outputs GO terms less than specified q-value")
     parser.add_argument("--neighbours", type=str, help="returns a list of the N closest neighbours to specified genes.")
     parser.add_argument("-N", "--num_neighbours", type=int, default=10, help="specify the number of nearest neighbours to return. Default is 10.")
     parser.add_argument("--GSEA", type=int, help='performs gene set enrichment analysis')
@@ -2022,6 +2029,7 @@ if __name__ == '__main__':
                     nes[pathway], pvalues[pathway], qvalue))
 
         out_h.close()
+        print "GSEA results (FDR < 0.25) have been saved to ", filename[:-4] + ".GSEA.list"
 
     if args.irizarry:
         print "Calculating Irizarry gene enrichment..."
@@ -2082,32 +2090,42 @@ if __name__ == '__main__':
 
     ## ANOVA analysis
     if args.filter_anova:
-        a_list = []
         a_dict = degs_anova(cluster)
+        # collect q-values:
+        q_dict = p_to_q(a_dict.values(), display_on=not(args.display_off))
+
+        # output results to file:
+        a_list = []
         out_h = open(filename[:-4] + ".ANOVA.list", 'w')
+        out_h.write('Gene                p-value q-value\n')
         for gene in a_dict:
-            if a_dict[gene] <= args.filter_anova:
-                out_h.write( "%-12s P-value: %.9f\n" % (gene, a_dict[gene]) )
+            if q_dict[a_dict[gene]] <= args.filter_anova:
+                out_h.write( "%-12s %12.9f %.5f\n" % (gene, a_dict[gene], q_dict[a_dict[gene]] ))
                 a_list.append(gene)
         out_h.close()
         print "Filtering matrix to %d genes with ANOVA P-value less than %.4f" % (len(a_list), args.filter_anova)
         cluster.filter_genes(a_list)
     elif args.anova:
         a_dict = degs_anova(cluster)
+        q_dict = p_to_q(a_dict.values(), display_on=not(args.display_off))
         out_h = open(filename[:-4] + ".ANOVA.list", 'w')
+        out_h.write('Gene                p-value q-value\n')
         for gene in a_dict:
-            if a_dict[gene] <= args.anova:
-                out_h.write( "%-12s P-value: %.9f\n" % (gene, a_dict[gene]) )
+            if q_dict[a_dict[gene]] <= args.anova:
+                out_h.write( "%-12s %12.9f %.5f\n" % (gene, a_dict[gene], q_dict[a_dict[gene]]) )
         out_h.close()
 
     ## t-test analysis
     if args.ttest_thresh:
-        t_list = []
         t_dict = find_degs(cluster)
+        q_dict = p_to_q([v[1] for v in t_dict.values()], display_on=not(args.display_off))
+        # report output to file:
+        t_list = []
         out_h = open(filename[:-4] + ".t_test.list", 'w')
+        out_h.write('Gene                p-value q-value\n')
         for gene in t_dict:
-            if t_dict[gene] <= args.ttest_thresh:
-                out_h.write( "%-12s P-value: %.4f\n" % (gene, t_dict[gene]) )
+            if q_dict[t_dict[gene][1]] <= args.ttest_thresh:
+                out_h.write( "%-12s %7.4f %.4f\n" % (gene, t_dict[gene][1],  q_dict[t_dict[gene][1]]))
                 t_list.append(gene)
         out_h.close()
         print "Filtering matrix to %d genes with t-test P-value less than %.2f" % (len(t_list),args.ttest_thresh)
@@ -2115,9 +2133,10 @@ if __name__ == '__main__':
     elif args.t_test:
         t_dict = find_degs(cluster)
         out_h = open(filename[:-4] + ".t_test.list", 'w')
+        out_h.write('Gene                p-value q-value\n')
         for gene in t_dict:
-            if t_dict[gene] <= args.t_test:
-                out_h.write( "%-12s P-value: %.4f\n" % (gene, t_dict[gene]) )
+            if q_dict[t_dict[gene]] <= args.t_test:
+                out_h.write( "%-12s %7.4f %.4f\n" % (gene, t_dict[gene]), q_dict[t_dict[gene]] )
         out_h.close()
 
     ## report nearest neighbours:
@@ -2151,7 +2170,7 @@ if __name__ == '__main__':
                                 "FL", "FP06", "FP12", "FP24","FP48", "FP96"])
 
 
-    ## perform hierarchical clustering
+    ################ perform hierarchical clustering ####################
     if cluster.genenumber > 1 and args.no_clustering is False:
         try:
             new_column_header, groups = heatmap(cluster, display=not(args.display_off), kegg=args.kegg, go=args.go_enrichment)
