@@ -143,6 +143,9 @@ class Cluster(object):
         self.refresh_headers()
         self.clean_header()
 
+        if genes_as_rows:
+            self.invert_matrix()
+
         self.samplesize, self.genenumber = self.check_size()
 
         self.vmax, self.vmin= self.getColorRange()
@@ -293,7 +296,7 @@ class Cluster(object):
                            (1.0, 0.0, 0.0))
                 }
 
-        my_cmap = matplotlib.colors.LinearSegmentedColormap('my_colormap',cdict,256)
+        my_cmap = mpl.colors.LinearSegmentedColormap('my_colormap',cdict,256)
         return my_cmap
 
     def _RedBlackBlue(self):
@@ -309,7 +312,7 @@ class Cluster(object):
                            (1.0, 0.0, 0.0))
                 }
 
-        my_cmap = matplotlib.colors.LinearSegmentedColormap('my_colormap',cdict,256)
+        my_cmap = mpl.colors.LinearSegmentedColormap('my_colormap',cdict,256)
         return my_cmap
 
     def _RedBlackGreen(self):
@@ -325,7 +328,7 @@ class Cluster(object):
                            (1.0, 0.0, 0.0))
                 }
 
-        my_cmap = matplotlib.colors.LinearSegmentedColormap('my_colormap',cdict,256)
+        my_cmap = mpl.colors.LinearSegmentedColormap('my_colormap',cdict,256)
         return my_cmap
 
     def _YellowBlackBlue(self):
@@ -343,7 +346,7 @@ class Cluster(object):
                 }
         ### yellow is created by adding y = 1 to RedBlackSkyBlue green last tuple
         ### modulate between blue and cyan using the last y var in the first green tuple
-        my_cmap = matplotlib.colors.LinearSegmentedColormap('my_colormap',cdict,256)
+        my_cmap = mpl.colors.LinearSegmentedColormap('my_colormap',cdict,256)
         return my_cmap
 
     def getColorRange(self):
@@ -1437,7 +1440,7 @@ def gene_set_enrichment(cluster, permutations=1000, processes=3, display_on=True
         if sum([1 for gene in opaths[pathway] if gene in snr_dict]) >= 10:
             paths[pathway] = opaths[pathway]
             es[pathway] = enrichment_score(snr_dict, paths[pathway], pathway=pathway, display_on=False)
-    print paths.keys()[:5]
+    #print paths.keys()[:5]
     # computing significance:
     print "Permuting pathways %d times" % permutations
 
@@ -2117,12 +2120,12 @@ if __name__ == '__main__':
 
     ## t-test analysis
     if args.ttest_thresh:
-        t_dict = find_degs(cluster)
+        t_dict = find_degs(cluster, group1='_FL', group2='_SP')
         q_dict = p_to_q([v[1] for v in t_dict.values()], display_on=not(args.display_off))
         # report output to file:
         t_list = []
         out_h = open(filename[:-4] + ".t_test.list", 'w')
-        out_h.write('Gene                p-value q-value\n')
+        out_h.write('%-12s %-7s %-7s\n' % ('Gene','p-value', 'q-value'))
         for gene in t_dict:
             if q_dict[t_dict[gene][1]] <= args.ttest_thresh:
                 out_h.write( "%-12s %7.4f %.4f\n" % (gene, t_dict[gene][1],  q_dict[t_dict[gene][1]]))
@@ -2132,11 +2135,12 @@ if __name__ == '__main__':
         cluster.filter_genes(t_list)
     elif args.t_test:
         t_dict = find_degs(cluster)
+        q_dict = p_to_q([v[1] for v in t_dict.values()], display_on=not(args.display_off))
         out_h = open(filename[:-4] + ".t_test.list", 'w')
-        out_h.write('Gene                p-value q-value\n')
+        out_h.write('%-12s %-7s %-7s\n' % ('Gene','p-value', 'q-value'))
         for gene in t_dict:
-            if q_dict[t_dict[gene]] <= args.t_test:
-                out_h.write( "%-12s %7.4f %.4f\n" % (gene, t_dict[gene]), q_dict[t_dict[gene]] )
+            if q_dict[t_dict[gene][1]] <= args.t_test:
+                out_h.write( "%-12s %7.4f %.4f\n" % (gene, t_dict[gene][1],  q_dict[t_dict[gene][1]]))
         out_h.close()
 
     ## report nearest neighbours:
