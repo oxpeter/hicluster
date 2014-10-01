@@ -1751,7 +1751,7 @@ def expression_peaks(cluster, magnitude, group1 = [ "SP", "SL06", "SL12", "SL24"
     print len(peaklist), "significant peaks found."
     return peaklist
 
-def p_to_q(pvalues, display_on=False):
+def p_to_q(pvalues, display_on=False, cut1s=False, conservative=False):
     """
     Given the list of pvalues, convert to pFDR q-values.
     According to Storey and Tibshirani (2003) PNAS 100(16) : 9440
@@ -1759,6 +1759,11 @@ def p_to_q(pvalues, display_on=False):
     returns: { p-value:q-value }
 
     """
+    # because fisher's exact test gives highly skewed pvalue dists (with P of 1)
+    # it may be necessary to remove the 1s before analysing
+    if cut1s:
+        pvalues = [ps for ps in pvalues if ps < 1]
+
     # order p-values:
     pvalues.sort()
 
@@ -1787,10 +1792,15 @@ def p_to_q(pvalues, display_on=False):
         pi0_hat_half = interpolate.splev(1, tck_half, der=0)
         pi0_hat = pi0_hat_half
         print "pi0_hat > 1! Likely skewed P-value distribution. Converting to ", pi0_hat_half
+    if conservative:
+        pi0_hat = 1
     if display_on:
         fig = plt.figure()
         ax1 = fig.add_subplot(111)
-        n, bins, patches = ax1.hist(pvalues, bins=20, facecolor='green', label="P-values")
+        try:
+            n, bins, patches = ax1.hist(pvalues, bins=20, facecolor='green', label="P-values")
+        except IndexError:
+            ax1.plot(pvalues)
         plt.title('distribution of P-values')
         ax1.set_xlabel('lambda / P-value')
         ax1.set_ylabel('distribution #')
