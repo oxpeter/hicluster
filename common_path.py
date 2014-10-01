@@ -18,6 +18,7 @@ from scipy import stats
 
 from genomepy import genematch
 from matplotlib_venn import venn2, venn3
+import hicluster
 
 ########################################################################################
 
@@ -139,8 +140,22 @@ def venn_4by4(genesets, pathsets, names):
 def venn_2way(genesets, pathsets, names):
 
     figure, axes = plt.subplots(1,2)
-    venn2([genesets[0], genesets[1]], set_labels = (names[0],names[1]), ax=axes[0])
-    venn2([pathsets[0], pathsets[1]], set_labels = (names[0],names[1]), ax=axes[1])
+    figure.text(0.45, 0.95, "Overlap of Orthologous Differentially Expressed Genes", ha="center", va="bottom", size="large")
+    figure.text(0.05, 0.9, names[0], ha="left", va="bottom", size="medium",color="red")
+    figure.text(0.05, 0.875, names[1], ha="left", va="bottom", size="medium", color="cyan")
+
+    v1 = venn2([genesets[0], genesets[1]], set_labels = (names[0][:2],names[1][:2]), ax=axes[0])
+    v2 = venn2([pathsets[0], pathsets[1]], set_labels = (names[0][:2],names[1][:2]), ax=axes[1])
+
+    v1.get_patch_by_id('10').set_color('red')
+    v2.get_patch_by_id('10').set_color('red')
+    v1.get_patch_by_id('01').set_color('cyan')
+    v2.get_patch_by_id('01').set_color('cyan')
+    try:
+        v1.get_patch_by_id('11').set_color('blue')
+        v2.get_patch_by_id('11').set_color('blue')
+    except AttributeError:
+        pass
     plt.show()
 
 
@@ -241,7 +256,7 @@ if __name__ == '__main__':
 
     # input options
     parser.add_argument("-E", "--experiments", type=str, help="comma-delimited list of data files for comparing")
-    parser.add_argument("-B", "--build_table", type=str, dest="build_list", default=None, help="Provide a comma-delimited list of cufflinks files with which to build the fpkm table for analysis.")
+    parser.add_argument("-B", "--background", type=str, help="Provide a file for using as background")
     parser.add_argument("-G", "--genes_only", action='store_true',  help="Turn off pathway comparison (much much faster)")
 
     args = parser.parse_args()
@@ -291,6 +306,33 @@ if __name__ == '__main__':
             venn_3way([gene_sets[exp] for exp in gene_sets], [gene_sets[exp] for exp in gene_sets], [exp for exp in gene_sets])
         elif len(experiments) == 2:
             venn_2way([gene_sets[exp] for exp in gene_sets], [gene_sets[exp] for exp in gene_sets], [exp for exp in gene_sets])
+            set1, set2 = [gene_sets[exp] for exp in gene_sets]
+
+            # GO enrichment of common genes:
+            pvals = genematch.go_enrichment(set1 & set2)
+            qvals = hicluster.p_to_q(pvals.values(), display_on=True, cut1s=True)
+            print [qvals[p] for p in qvals if qvals[p] < 0.1]
+
+            background = hicluster.make_a_list(args.background)
+            screened = [gene for gene in background if gene not in set1 & set2]
+
+            # kegg enrichment of common genes
+            pvalupper, pvalpath = genematch.kegg_pathway_enrichment(set1 & set2, screened)
+
+            qvalspath = hicluster.p_to_q(pvalpath.values(), display_on=True, cut1s=False, conservative=True)
+            qvalsupper = hicluster.p_to_q(pvalupper.values(), display_on=True, cut1s=False, conservative=True)
+
+            print "### q values of pathways ###"
+            print "\n".join([p + " " + str(qvalspath[p]) for p in qvalspath if qvalspath[p] < 0.1])
+            print "### q values of pathway types ###"
+            print "\n".join([p + " " + str(qvalsupper[p]) for p in qvalsupper if qvalsupper[p] < 0.1])
+
+
+            print "### p values of pathways ###"
+            print "\n".join([p + " " + str(pvalpath[p]) for p in pvalpath if pvalpath[p] < 0.01])
+            print "### p values of pathway types ###"
+            print "\n".join([p + " " + str(pvalupper[p]) for p in pvalupper if pvalupper[p] < 0.01])
+
         elif len(experiments) == 4:
             venn_4by4([gene_sets[exp] for exp in gene_sets], [gene_sets[exp] for exp in gene_sets], [exp for exp in gene_sets])
 
