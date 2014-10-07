@@ -682,6 +682,319 @@ class Cluster(object):
 # #                                                                              # #
 # #                                                                              # #
 
+def define_arguments():
+    parser = argparse.ArgumentParser(description="Performs heirarchical clustering")
+
+    # input options
+    parser.add_argument("-D", "--data_file", type=str, help="The data file for analysing")
+    parser.add_argument("-B", "--build_table", type=str, dest="build_list", default=None, help="Provide a comma-delimited list of cufflinks files with which to build the fpkm table for analysis.")
+    parser.add_argument("-T", "--genes_as_rows", action='store_true',  help="Select if top row of data file is sample names")
+    # output options
+    parser.add_argument("-o", "--output_file", dest='filename', type=str, default=None, help="output file path and root name for results")
+    parser.add_argument("-e", "--export_table", action='store_true', help="export transformed expression matrix")
+    # analysis options
+    parser.add_argument("--no_clustering", action='store_true', help="Turn of clustering. Performs data transformation, filtering and analysis, then exits")
+    parser.add_argument("-R", "--sample_method", type=str, default='complete', help="The clustering method for samples \n(single, average, complete, etc)")
+    parser.add_argument("-G", "--gene_method", type=str, default='complete', help="The clustering method for genes \n(single, average, complete, weighted, ward, centroid, etc)")
+    parser.add_argument("-r", "--sample_metric", type=str, default='correlation', help="The distance metric for samples \n(euclidean, correlation, cosine, manhattan, etc)")
+    parser.add_argument("-g", "--gene_metric", type=str, default='correlation', help="The distance metric for genes \n(euclidean, correlation, manhattan, etc)")
+    parser.add_argument("-P", "--pca", action='store_true',  help="Performs principal component analysis.")
+    parser.add_argument("-a", "--anova", type=float,  help="Perform ANOVA on 10 groups, and report genes with q-value less than value specified")
+    parser.add_argument("-A", "--filter_anova", type=float, help="Perform ANOVA and filter genes to keep only those with q-value less than value given")
+    parser.add_argument("-s", "--t_test", type=float,  help="Perform student's t-test on two groups, and report genes with q-value less than value specified")
+    parser.add_argument("-S", "--filter_t", type=float, dest="ttest_thresh", help="Perform student's t-test and filter genes to keep only those with q-value less than value given")
+    parser.add_argument("-K", "--kegg", type=float, help="Perform KEGG pathway enrichment analysis on gene clusters. Outputs KEGG terms less than specified q-value")
+    parser.add_argument("-E", "--go_enrichment", type=float, help="Perform GO term enrichment analysis on gene clusters. Outputs GO terms less than specified q-value")
+    parser.add_argument("--neighbours", type=str, help="returns a list of the N closest neighbours to specified genes.")
+    parser.add_argument("-N", "--num_neighbours", type=int, default=10, help="specify the number of nearest neighbours to return. Default is 10.")
+    parser.add_argument("--GSEA", type=int, help='performs gene set enrichment analysis')
+    parser.add_argument("--processes", type=int, default=1, help="specify the number of processes to split the permutations over. Default is 1")
+    parser.add_argument("--irizarry", action='store_true', help="performs gene set enrichment analysis according to Irizarry's scale sensitive chi square statistic")
+    parser.add_argument("--irizarry_z", action='store_true', help="performs gene set enrichment analysis according to Irizarry's z statistic")
+    # viewing options
+    parser.add_argument("-c", "--color_gradient", type=str, dest="color_gradient", default='red_white_blue', help="The colour scheme \n(red_white_blue, red_black_sky, red_black_blue, \nred_black_green, yellow_black_blue, seismic, \ngreen_white_purple, coolwarm)")
+    parser.add_argument("-d", "--distribution", action='store_true', default=False, help="Shows FPKM distribution of each sample before and after normalisation")
+    parser.add_argument("--display_off", action='store_true', help="Turn of displaying of clustering")
+    parser.add_argument("--display_reverse", action='store_true', help="Switch gene and sample axes on graphs")
+    parser.add_argument("--bar_charts", type=str, help="List of genes for which you wish to create column graphs of average gene expression for.")
+    # filtering options
+    parser.add_argument("-m", "--magnitude", type=float, dest="filter", default=2.5, help="Filters out genes with magnitude of range less than value given. Default = 1.13")
+    parser.add_argument("-L", "--gene_list", type=str, dest="gene_list", default=None, help="Allows provision of a file containing a list of genes for inclusion in the clustering (ie, will filter out all genes NOT in the list provided). Otherwise, all genes will be included.")
+    parser.add_argument("-p", "--fpkm_max", type=float, dest="fpkm_max", default=1000000, help="Filters out genes with maximum fpkm greater than value given. Default = 1 000 000")
+    parser.add_argument("-q", "--fpkm_min", type=int, dest="fpkm_min", default=10, help="Filters out genes with maximum fpkm less than value given. Default = 10")
+    parser.add_argument("-f", "--filter_off", action='store_true', help="Turns off filtering based on expression value. ")
+    parser.add_argument("--kill_PC1", action='store_true', help="removes first principal component")
+    parser.add_argument("--expression_peaks", type=float, help="finds genes with singular timepoint peaks of magnitude n greater than control timepoint")
+    # data transform options
+    parser.add_argument("--randomise_samples", action='store_true', default=False, help="Randomises samples immediately after cluster creation")
+    parser.add_argument("-t", "--transform_off", action='store_true', default=False, help="Turns off log2(FPKM + 1) transformation (prior to normalisation if selected).")
+    parser.add_argument("-n", "--normalise_off", action='store_true', default=False, help="Turns off normalisation. Normalises by dividing by the standard deviation.")
+    parser.add_argument("-u", "--centering_off", action='store_true', default=False, help="Turns off gene centering. Centering subtracts the mean from all values for a gene, giving mean = 0.")
+    parser.add_argument("-X", "--sample_norm", action='store_true', help='Normalises samples instead of genes')
+    parser.add_argument("--show_averages", action='store_true', help="Calculates the average value for each group and clusters based on this new matrix")
+
+    return parser
+
+def run_arguments(args):
+    ## create data table from cufflinks files:
+    if args.build_list:
+        data_table = create_table(args.build_list)
+    else:
+        data_table = os.path.realpath(args.data_file)
+
+    ## create output folder and log file of arguments:
+    timestamp = time.strftime("%b%d_%H.%M")
+    if not args.filename:
+        root_dir = os.path.dirname(data_table)
+        newfolder = root_dir + "/hicluster." + timestamp
+        os.mkdir(newfolder)  # don't have to check if it exists, as timestamp is unique
+        filename = newfolder + "/hicluster." + timestamp + ".log"
+    else:
+        newfolder = os.path.realpath(args.filename)
+        if os.path.exists(newfolder) is False:  # check to see if folder already exists...
+            os.mkdir(newfolder)
+        filename = newfolder + '/' + os.path.basename(args.filename) + '.' + timestamp + ".log"
+
+    log_h = open(filename, 'w')
+    log_h.write( "File created on %s\n" % (timestamp) )
+    log_h.write( "Program called from %s\n\n" % (os.getcwd()) )
+    for arg in str(args)[10:-1].split():
+        log_h.write( "%s\n" % (arg) )
+    log_h.close()
+
+    ## create matrix:
+    cluster = Cluster(data_table, exportPath=filename, firstrow=True, genes_as_rows=args.genes_as_rows, \
+                gene_metric=args.gene_metric, sample_metric=args.sample_metric, \
+                gene_method=args.gene_method, sample_method=args.sample_method, \
+                color_gradient=args.color_gradient)
+
+    if args.randomise_samples:
+        cluster.randomise_samples()
+
+    ####### FILTERING OF MATRIX ###########
+
+
+    ## filter by provided gene list
+    if args.gene_list:
+        genelist = make_a_list(args.gene_list)
+        print "Filtering to keep %d genes" % len(genelist)
+        cluster.filter_genes(genelist)
+
+    ## filter by magnitude, minimum values and maximum values
+    if not args.filter_off:
+        cluster.filterData(mag=args.filter, min_thresh=args.fpkm_min, max_thresh=args.fpkm_max)
+
+
+    ####### NORMALISATION OPTIONS ##############
+
+    ## show gene distribution
+    if args.distribution:
+        expression_dist(cluster)
+
+    ## normalise matrix
+    meanlist = cluster.normaliseData(center=not(args.centering_off), norm_var=not(args.normalise_off), log_t=not(args.transform_off), sample_norm=args.sample_norm)
+
+    ## show distribution after normalisation
+    if args.distribution:
+        expression_dist(cluster, min_x=-2, max_x=2)
+
+    ## export transformed data table:
+    if args.export_table:
+        cluster.export()
+
+    if args.expression_peaks:
+        print "\nChecking for expression peaks..."
+        peaklist = expression_peaks(cluster, args.expression_peaks)
+        cluster.filter_genes(peaklist)
+        print "%d genes with expression peaks found" % (cluster.genenumber)
+        out_h = open(filename[:-4] + ".expression_peaks.list", 'w')
+        for gene in peaklist:
+            out_h.write( "%-20s %s\n" % (gene, peaklist[gene]) )
+        out_h.close()
+
+
+    ####### ANALYSIS OPTIONS ##############
+
+    ## Gene Set Enrichment Analysis (cf Subramanian et al. (2005) PNAS 102(43)
+    if args.GSEA:
+        nes, pvalues, qvalues = gene_set_enrichment(cluster, permutations=args.GSEA, processes=args.processes, display_on=not(args.display_off))
+        out_h = open(filename[:-4] + ".GSEA.list", 'w')
+        # write all positive scores with q values less than 0.25 to file:
+        for pathway, qvalue in sorted(qvalues.iteritems(), key=itemgetter(1)):
+            if qvalue <= 0.25 and nes[pathway] >= 0:
+                out_h.write( "%-15s %-50s%s ES=%+6.3f P=%8.3e q=%8.4f\n" % (
+                    pathway[0], pathway[1][:50], '...' if len(pathway[1])>50 else '   ',
+                    nes[pathway], pvalues[pathway], qvalue))
+
+        # write all negative scores with q values less than 0.25 to file:
+        for pathway, qvalue in sorted(qvalues.iteritems(), key=itemgetter(1), reverse=True):
+            if qvalue <= 0.25 and nes[pathway] < 0:
+                out_h.write( "%-15s %-50s%s ES=%+6.3f P=%8.3e q=%8.4f\n" % (
+                    pathway[0], pathway[1][:50], '...' if len(pathway[1])>50 else '   ',
+                    nes[pathway], pvalues[pathway], qvalue))
+
+        out_h.close()
+        print "GSEA results (FDR < 0.25) have been saved to ", filename[:-4] + ".GSEA.list"
+
+    if args.irizarry:
+        print "Calculating Irizarry gene enrichment..."
+        t_dict = find_degs(cluster, group1="_FL", group2="_SP")
+        pvalues = {}
+        paths = {}
+        print "Calculating pathway enrichment scores..."
+        paths, smallpaths = genematch.collect_kegg_pathways(minsize=10)
+        paths.update(smallpaths)
+        paths.update(genematch.collect_ipr_pathways(minsize=10))
+        paths.update(genematch.collect_go_pathways(minsize=10) )
+        for pathway in paths:
+            pvalues[pathway] = irizarry_enrichment(t_dict, paths[pathway])
+        out_h = open(filename[:-4] + ".GSEA_Irizarry.list", 'w')
+        for pathway,pval in sorted(pvalues.iteritems(), key=itemgetter(1)):
+            if pvalues[pathway]:
+                out_h.write( "%-15s %-50s%s P=%8.4f\n" % (
+                    pathway[0], pathway[1][:50], '...' if len(pathway[1])>50 else '   ',
+                    pval))
+        out_h.close()
+
+    if args.irizarry_z:
+        print "Calculating Irizarry gene enrichment..."
+        t_dict = find_degs(cluster, group1="_FL", group2="_SP")
+        #s_dict = signal_to_noise(cluster)
+        pvalues = {}
+        paths = {}
+        print "Calculating pathway enrichment scores..."
+        # extract all pathway genelists:
+        paths, smallpaths = genematch.collect_kegg_pathways(minsize=10)
+        paths.update(smallpaths)
+        paths.update(genematch.collect_ipr_pathways(minsize=10))
+        paths.update(genematch.collect_go_pathways(minsize=10) )
+        # calculate enrichment score:
+        for pathway in paths:
+            pvalues[pathway] = irizarry_enrichment_z(t_dict, paths[pathway])
+
+        # calculate q-values for the list of p-values:
+        qvalues = p_to_q(pvalues.values(), display_on=not(args.display_off))
+        for p,q in sorted(qvalues.iteritems()):
+            if  0.95 < p <= 0.05:
+                print "%-8.4f %-.4f" % (p, qvalues[p])
+
+        out_h = open(filename[:-4] + ".GSEA_Irizarry_z.list", 'w')
+        for pathway,pval in sorted(pvalues.iteritems(), key=itemgetter(1)):
+            if pvalues[pathway] <= 0.05:
+                out_h.write( "%-15s %-50s%s P=%7.4f q=%7.4f\n" % (
+                    pathway[0], pathway[1][:50], '...' if len(pathway[1])>50 else '   ',
+                    pval, qvalues[pval]))
+        out_h.close()
+
+    ## Principal Component Analysis:
+    if args.pca:
+        matrix_red = analyse_pca(cluster, data_table)
+
+    if args.kill_PC1:
+        cluster.data_matrix = matrix_red
+
+    ## ANOVA analysis
+    if args.filter_anova:
+        a_dict = degs_anova(cluster)
+        # collect q-values:
+        q_dict = p_to_q(a_dict.values(), display_on=not(args.display_off))
+
+        # output results to file:
+        a_list = []
+        out_h = open(filename[:-4] + ".ANOVA.list", 'w')
+        out_h.write('Gene                p-value q-value\n')
+        for gene in a_dict:
+            if q_dict[a_dict[gene]] <= args.filter_anova:
+                out_h.write( "%-12s %12.9f %.5f\n" % (gene, a_dict[gene], q_dict[a_dict[gene]] ))
+                a_list.append(gene)
+        out_h.close()
+        print "Filtering matrix to %d genes with ANOVA P-value less than %.4f" % (len(a_list), args.filter_anova)
+        cluster.filter_genes(a_list)
+    elif args.anova:
+        a_dict = degs_anova(cluster)
+        q_dict = p_to_q(a_dict.values(), display_on=not(args.display_off))
+        out_h = open(filename[:-4] + ".ANOVA.list", 'w')
+        out_h.write('Gene                p-value q-value\n')
+        for gene in a_dict:
+            if q_dict[a_dict[gene]] <= args.anova:
+                out_h.write( "%-12s %12.9f %.5f\n" % (gene, a_dict[gene], q_dict[a_dict[gene]]) )
+        out_h.close()
+
+    ## t-test analysis
+    if args.ttest_thresh:
+        t_dict = find_degs(cluster, group1='_FL', group2='_SP')
+        q_dict = p_to_q([v[1] for v in t_dict.values()], display_on=not(args.display_off))
+        # report output to file:
+        t_list = []
+        out_h = open(filename[:-4] + ".t_test.list", 'w')
+        out_h.write('%-12s %-7s %-7s\n' % ('Gene','p-value', 'q-value'))
+        for gene in t_dict:
+            if q_dict[t_dict[gene][1]] <= args.ttest_thresh:
+                out_h.write( "%-12s %7.4f %.4f %.1f\n" % (gene, t_dict[gene][1],  q_dict[t_dict[gene][1]], t_dict[gene][2]))
+                t_list.append(gene)
+        out_h.close()
+        print "Filtering matrix to %d genes with t-test P-value less than %.2f" % (len(t_list),args.ttest_thresh)
+        cluster.filter_genes(t_list)
+    elif args.t_test:
+        t_dict = find_degs(cluster)
+        q_dict = p_to_q([v[1] for v in t_dict.values()], display_on=not(args.display_off))
+        out_h = open(filename[:-4] + ".t_test.list", 'w')
+        out_h.write('%-12s %-7s %-7s\n' % ('Gene','p-value', 'q-value'))
+        for gene in t_dict:
+            if q_dict[t_dict[gene][1]] <= args.t_test:
+                out_h.write( "%-12s %7.4f %.4f\n" % (gene, t_dict[gene][1],  q_dict[t_dict[gene][1]]))
+        out_h.close()
+
+    ## report nearest neighbours:
+
+    if args.neighbours:
+        print "\nCalculating nearest neighbours..."
+        # +1 to argument, since the first neighbour returned is the gene itself.
+        neighbour_dict = find_nearest_neighbours(cluster, args.neighbours,
+                                        numberofneighbours=args.num_neighbours + 1)
+
+        out_h = open(filename[:-4] + ".nearest_neighbours.list", 'w')
+        for neigh in neighbour_dict:
+            t_neighbours, stat_str = neighbour_dict[neigh]
+            out_h.write("## %s\n%s\n%s\n\n" % (neigh, stat_str, ",".join(t_neighbours[1:])) )
+        out_h.close()
+
+    ## bar-chart construction:
+    if args.bar_charts:
+        genelist = make_a_list(args.bar_charts, col_num=0)
+        print "Constructing bar charts for %d genes: %s" % ( len(genelist), " ".join(genelist))
+        bar_charts(cluster, genelist)
+
+    ### re-format for publication purposes:
+    ## transpose so genes are on y-axis:
+    if args.display_reverse:
+        cluster.invert_matrix()
+
+    ## display average values for each group instead of individual values
+    if args.show_averages is True:
+        cluster.average_matrix(groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96",
+                                "FL", "FP06", "FP12", "FP24","FP48", "FP96"])
+
+
+    ################ perform hierarchical clustering ####################
+    if cluster.genenumber > 1 and args.no_clustering is False:
+        try:
+            new_column_header, groups = heatmap(cluster, display=not(args.display_off), kegg=args.kegg, go=args.go_enrichment)
+        except Exception as inst:
+            print 'Error using %s ... trying euclidean instead\n%s' % (args.gene_metric, inst)
+
+            cluster.gene_metric = 'euclidean'
+            cluster.sample_metric = 'euclidean'
+            cluster.refresh_headers()
+            try:
+                new_column_header, groups = heatmap(cluster, display=not(args.display_off), kegg=args.kegg, go=args.go_enrichment)
+            except IOError:
+                print 'Error with clustering encountered'
+                new_column_header = ['']
+                groups = ['']
+
+    return cluster
+
 def heatmap(cluster, display=True,kegg=False, go=False):
     ################# Perform the hierarchical clustering #################
     ###  heatmap function updated from original code hierarchical_clustering.py
@@ -1237,8 +1550,9 @@ def find_degs(cluster, group1="_FL", group2="_SP"):
 
     for g in range(cluster.genenumber):
         exvalues = [cluster.data_matrix[limits[x]:limits[x+1],g] for x in range(len(limits) - 1)]
+        difference = numpy.mean(exvalues[0]) - numpy.mean(exvalues[1])
         t_val, p_val = stats.ttest_ind(exvalues[0],exvalues[1])
-        t_dict[cluster.gene_header[g]] = float(t_val), p_val
+        t_dict[cluster.gene_header[g]] = float(t_val), p_val, difference
 
     return t_dict
 
@@ -1666,14 +1980,15 @@ def bar_charts(cluster, genelist, groups=["SP", "SL06", "SL12", "SL24","SL48", "
         labelist.pop(0)                         # removes first element (blank label)
         taxes.set_xticks(numpy.arange(12.0)*1)  # now create the right number of ticks
         taxes.set_xticklabels(labelist)         # reset with new names
-        taxes.set_title("%s %s(ANOVA P-value %.8f)\n%s\n KEGG ortholog %s:\n%s\n%s" % (os.path.basename(filename)[:-4], gene, anova[gene], ncbi_terms[gene], koterm, ko_dict[gene], godesc), fontsize=12 )
+        title_string = "%s %s(ANOVA P-value %.8f)\n%s\n KEGG ortholog %s:\n%s\n%s"
+        taxes.set_title(title_string % (os.path.basename(cluster.exportPath[:-4]), gene, anova[gene], ncbi_terms[gene], koterm, ko_dict[gene], godesc), fontsize=12 )
 
         plt.tight_layout()
         plt.savefig(pp, format='pdf')
         #plt.show(phimg)
         plt.close()
         # print summary to file:
-        tukeys_h = open(filename[:-4] + '.tukeys.txt','a')
+        tukeys_h = open(cluster.exportPath[:-4] + '.tukeys.txt','a')
         tukeys_h.write('Gene '  + str(gene) + ':\n')
         tukeys_h.write(str(posthoc) + '\n\n')
         tukeys_h.close()
@@ -1894,309 +2209,9 @@ def appendkegg(geneid, ko_dictionary):
 
 if __name__ == '__main__':
 
-    parser = argparse.ArgumentParser(description="Performs heirarchical clustering")
-
-    # input options
-    parser.add_argument("-D", "--data_file", type=str, help="The data file for analysing")
-    parser.add_argument("-B", "--build_table", type=str, dest="build_list", default=None, help="Provide a comma-delimited list of cufflinks files with which to build the fpkm table for analysis.")
-    parser.add_argument("-T", "--genes_as_rows", action='store_true',  help="Select if top row of data file is sample names")
-    # output options
-    parser.add_argument("-o", "--output_file", dest='filename', type=str, default=None, help="output file path and root name for results")
-    parser.add_argument("-e", "--export_table", action='store_true', help="export transformed expression matrix")
-    # analysis options
-    parser.add_argument("--no_clustering", action='store_true', help="Turn of clustering. Performs data transformation, filtering and analysis, then exits")
-    parser.add_argument("-R", "--sample_method", type=str, default='complete', help="The clustering method for samples \n(single, average, complete, etc)")
-    parser.add_argument("-G", "--gene_method", type=str, default='complete', help="The clustering method for genes \n(single, average, complete, weighted, ward, centroid, etc)")
-    parser.add_argument("-r", "--sample_metric", type=str, default='correlation', help="The distance metric for samples \n(euclidean, correlation, cosine, manhattan, etc)")
-    parser.add_argument("-g", "--gene_metric", type=str, default='correlation', help="The distance metric for genes \n(euclidean, correlation, manhattan, etc)")
-    parser.add_argument("-P", "--pca", action='store_true',  help="Performs principal component analysis.")
-    parser.add_argument("-a", "--anova", type=float,  help="Perform ANOVA on 10 groups, and report genes with q-value less than value specified")
-    parser.add_argument("-A", "--filter_anova", type=float, help="Perform ANOVA and filter genes to keep only those with q-value less than value given")
-    parser.add_argument("-s", "--t_test", type=float,  help="Perform student's t-test on two groups, and report genes with q-value less than value specified")
-    parser.add_argument("-S", "--filter_t", type=float, dest="ttest_thresh", help="Perform student's t-test and filter genes to keep only those with q-value less than value given")
-    parser.add_argument("-K", "--kegg", type=float, help="Perform KEGG pathway enrichment analysis on gene clusters. Outputs KEGG terms less than specified q-value")
-    parser.add_argument("-E", "--go_enrichment", type=float, help="Perform GO term enrichment analysis on gene clusters. Outputs GO terms less than specified q-value")
-    parser.add_argument("--neighbours", type=str, help="returns a list of the N closest neighbours to specified genes.")
-    parser.add_argument("-N", "--num_neighbours", type=int, default=10, help="specify the number of nearest neighbours to return. Default is 10.")
-    parser.add_argument("--GSEA", type=int, help='performs gene set enrichment analysis')
-    parser.add_argument("--processes", type=int, default=1, help="specify the number of processes to split the permutations over. Default is 1")
-    parser.add_argument("--irizarry", action='store_true', help="performs gene set enrichment analysis according to Irizarry's scale sensitive chi square statistic")
-    parser.add_argument("--irizarry_z", action='store_true', help="performs gene set enrichment analysis according to Irizarry's z statistic")
-    # viewing options
-    parser.add_argument("-c", "--color_gradient", type=str, dest="color_gradient", default='red_white_blue', help="The colour scheme \n(red_white_blue, red_black_sky, red_black_blue, \nred_black_green, yellow_black_blue, seismic, \ngreen_white_purple, coolwarm)")
-    parser.add_argument("-d", "--distribution", action='store_true', default=False, help="Shows FPKM distribution of each sample before and after normalisation")
-    parser.add_argument("--display_off", action='store_true', help="Turn of displaying of clustering")
-    parser.add_argument("--display_reverse", action='store_true', help="Switch gene and sample axes on graphs")
-    parser.add_argument("--bar_charts", type=str, help="List of genes for which you wish to create column graphs of average gene expression for.")
-    # filtering options
-    parser.add_argument("-m", "--magnitude", type=float, dest="filter", default=2.5, help="Filters out genes with magnitude of range less than value given. Default = 1.13")
-    parser.add_argument("-L", "--gene_list", type=str, dest="gene_list", default=None, help="Allows provision of a file containing a list of genes for inclusion in the clustering (ie, will filter out all genes NOT in the list provided). Otherwise, all genes will be included.")
-    parser.add_argument("-p", "--fpkm_max", type=float, dest="fpkm_max", default=1000000, help="Filters out genes with maximum fpkm greater than value given. Default = 1 000 000")
-    parser.add_argument("-q", "--fpkm_min", type=int, dest="fpkm_min", default=10, help="Filters out genes with maximum fpkm less than value given. Default = 10")
-    parser.add_argument("-f", "--filter_off", action='store_true', help="Turns off filtering based on expression value. ")
-    parser.add_argument("--kill_PC1", action='store_true', help="removes first principal component")
-    parser.add_argument("--expression_peaks", type=float, help="finds genes with singular timepoint peaks of magnitude n greater than control timepoint")
-    # data transform options
-    parser.add_argument("-t", "--transform_off", action='store_true', default=False, help="Turns off log2(FPKM + 1) transformation (prior to normalisation if selected).")
-    parser.add_argument("-n", "--normalise_off", action='store_true', default=False, help="Turns off normalisation. Normalises by dividing by the standard deviation.")
-    parser.add_argument("-u", "--centering_off", action='store_true', default=False, help="Turns off gene centering. Centering subtracts the mean from all values for a gene, giving mean = 0.")
-    parser.add_argument("-X", "--sample_norm", action='store_true', help='Normalises samples instead of genes')
-    parser.add_argument("--show_averages", action='store_true', help="Calculates the average value for each group and clusters based on this new matrix")
+    parser = define_arguments()
 
     args = parser.parse_args()
 
+    run_arguments(args)
 
-    ## create data table from cufflinks files:
-    if args.build_list:
-        data_table = create_table(args.build_list)
-    else:
-        data_table = os.path.realpath(args.data_file)
-
-    ## create output folder and log file of arguments:
-    timestamp = time.strftime("%b%d_%H.%M")
-    if not args.filename:
-        root_dir = os.path.dirname(data_table)
-        newfolder = root_dir + "/hicluster." + timestamp
-        os.mkdir(newfolder)  # don't have to check if it exists, as timestamp is unique
-        filename = newfolder + "/hicluster." + timestamp + ".log"
-    else:
-        newfolder = os.path.realpath(args.filename)
-        if os.path.exists(newfolder) is False:  # check to see if folder already exists...
-            os.mkdir(newfolder)
-        filename = newfolder + '/' + os.path.basename(args.filename) + '.' + timestamp + ".log"
-
-    log_h = open(filename, 'w')
-    log_h.write( "File created on %s\n" % (timestamp) )
-    log_h.write( "Program called from %s\n\n" % (os.getcwd()) )
-    for arg in str(args)[10:-1].split():
-        log_h.write( "%s\n" % (arg) )
-    log_h.close()
-
-    ## create matrix:
-    cluster = Cluster(data_table, exportPath=filename, firstrow=True, genes_as_rows=args.genes_as_rows, \
-                gene_metric=args.gene_metric, sample_metric=args.sample_metric, \
-                gene_method=args.gene_method, sample_method=args.sample_method, \
-                color_gradient=args.color_gradient)
-
-
-    ####### FILTERING OF MATRIX ###########
-
-
-    ## filter by provided gene list
-    if args.gene_list:
-        genelist = make_a_list(args.gene_list)
-        print "Filtering to keep %d genes" % len(genelist)
-        cluster.filter_genes(genelist)
-
-    ## filter by magnitude, minimum values and maximum values
-    if not args.filter_off:
-        cluster.filterData(mag=args.filter, min_thresh=args.fpkm_min, max_thresh=args.fpkm_max)
-
-
-    ####### NORMALISATION OPTIONS ##############
-
-    ## show gene distribution
-    if args.distribution:
-        expression_dist(cluster)
-
-    ## normalise matrix
-    meanlist = cluster.normaliseData(center=not(args.centering_off), norm_var=not(args.normalise_off), log_t=not(args.transform_off), sample_norm=args.sample_norm)
-
-    ## show distribution after normalisation
-    if args.distribution:
-        expression_dist(cluster, min_x=-2, max_x=2)
-
-    ## export transformed data table:
-    if args.export_table:
-        cluster.export()
-
-    if args.expression_peaks:
-        print "\nChecking for expression peaks..."
-        peaklist = expression_peaks(cluster, args.expression_peaks)
-        cluster.filter_genes(peaklist)
-        print "%d genes with expression peaks found" % (cluster.genenumber)
-        out_h = open(filename[:-4] + ".expression_peaks.list", 'w')
-        for gene in peaklist:
-            out_h.write( "%-20s %s\n" % (gene, peaklist[gene]) )
-        out_h.close()
-
-
-    ####### ANALYSIS OPTIONS ##############
-
-    ## Gene Set Enrichment Analysis (cf Subramanian et al. (2005) PNAS 102(43)
-    if args.GSEA:
-        nes, pvalues, qvalues = gene_set_enrichment(cluster, permutations=args.GSEA, processes=args.processes, display_on=not(args.display_off))
-        out_h = open(filename[:-4] + ".GSEA.list", 'w')
-        # write all positive scores with q values less than 0.25 to file:
-        for pathway, qvalue in sorted(qvalues.iteritems(), key=itemgetter(1)):
-            if qvalue <= 0.25 and nes[pathway] >= 0:
-                out_h.write( "%-15s %-50s%s ES=%+6.3f P=%8.3e q=%8.4f\n" % (
-                    pathway[0], pathway[1][:50], '...' if len(pathway[1])>50 else '   ',
-                    nes[pathway], pvalues[pathway], qvalue))
-
-        # write all negative scores with q values less than 0.25 to file:
-        for pathway, qvalue in sorted(qvalues.iteritems(), key=itemgetter(1), reverse=True):
-            if qvalue <= 0.25 and nes[pathway] < 0:
-                out_h.write( "%-15s %-50s%s ES=%+6.3f P=%8.3e q=%8.4f\n" % (
-                    pathway[0], pathway[1][:50], '...' if len(pathway[1])>50 else '   ',
-                    nes[pathway], pvalues[pathway], qvalue))
-
-        out_h.close()
-        print "GSEA results (FDR < 0.25) have been saved to ", filename[:-4] + ".GSEA.list"
-
-    if args.irizarry:
-        print "Calculating Irizarry gene enrichment..."
-        t_dict = find_degs(cluster, group1="_FL", group2="_SP")
-        pvalues = {}
-        paths = {}
-        print "Calculating pathway enrichment scores..."
-        paths, smallpaths = genematch.collect_kegg_pathways(minsize=10)
-        paths.update(smallpaths)
-        paths.update(genematch.collect_ipr_pathways(minsize=10))
-        paths.update(genematch.collect_go_pathways(minsize=10) )
-        for pathway in paths:
-            pvalues[pathway] = irizarry_enrichment(t_dict, paths[pathway])
-        out_h = open(filename[:-4] + ".GSEA_Irizarry.list", 'w')
-        for pathway,pval in sorted(pvalues.iteritems(), key=itemgetter(1)):
-            if pvalues[pathway]:
-                out_h.write( "%-15s %-50s%s P=%8.4f\n" % (
-                    pathway[0], pathway[1][:50], '...' if len(pathway[1])>50 else '   ',
-                    pval))
-        out_h.close()
-
-    if args.irizarry_z:
-        print "Calculating Irizarry gene enrichment..."
-        t_dict = find_degs(cluster, group1="_FL", group2="_SP")
-        #s_dict = signal_to_noise(cluster)
-        pvalues = {}
-        paths = {}
-        print "Calculating pathway enrichment scores..."
-        # extract all pathway genelists:
-        paths, smallpaths = genematch.collect_kegg_pathways(minsize=10)
-        paths.update(smallpaths)
-        paths.update(genematch.collect_ipr_pathways(minsize=10))
-        paths.update(genematch.collect_go_pathways(minsize=10) )
-        # calculate enrichment score:
-        for pathway in paths:
-            pvalues[pathway] = irizarry_enrichment_z(t_dict, paths[pathway])
-
-        # calculate q-values for the list of p-values:
-        qvalues = p_to_q(pvalues.values(), display_on=not(args.display_off))
-        for p,q in sorted(qvalues.iteritems()):
-            if  0.95 < p <= 0.05:
-                print "%-8.4f %-.4f" % (p, qvalues[p])
-
-        out_h = open(filename[:-4] + ".GSEA_Irizarry_z.list", 'w')
-        for pathway,pval in sorted(pvalues.iteritems(), key=itemgetter(1)):
-            if pvalues[pathway] <= 0.05:
-                out_h.write( "%-15s %-50s%s P=%7.4f q=%7.4f\n" % (
-                    pathway[0], pathway[1][:50], '...' if len(pathway[1])>50 else '   ',
-                    pval, qvalues[pval]))
-        out_h.close()
-
-    ## Principal Component Analysis:
-    if args.pca:
-        matrix_red = analyse_pca(cluster, data_table)
-
-    if args.kill_PC1:
-        cluster.data_matrix = matrix_red
-
-    ## ANOVA analysis
-    if args.filter_anova:
-        a_dict = degs_anova(cluster)
-        # collect q-values:
-        q_dict = p_to_q(a_dict.values(), display_on=not(args.display_off))
-
-        # output results to file:
-        a_list = []
-        out_h = open(filename[:-4] + ".ANOVA.list", 'w')
-        out_h.write('Gene                p-value q-value\n')
-        for gene in a_dict:
-            if q_dict[a_dict[gene]] <= args.filter_anova:
-                out_h.write( "%-12s %12.9f %.5f\n" % (gene, a_dict[gene], q_dict[a_dict[gene]] ))
-                a_list.append(gene)
-        out_h.close()
-        print "Filtering matrix to %d genes with ANOVA P-value less than %.4f" % (len(a_list), args.filter_anova)
-        cluster.filter_genes(a_list)
-    elif args.anova:
-        a_dict = degs_anova(cluster)
-        q_dict = p_to_q(a_dict.values(), display_on=not(args.display_off))
-        out_h = open(filename[:-4] + ".ANOVA.list", 'w')
-        out_h.write('Gene                p-value q-value\n')
-        for gene in a_dict:
-            if q_dict[a_dict[gene]] <= args.anova:
-                out_h.write( "%-12s %12.9f %.5f\n" % (gene, a_dict[gene], q_dict[a_dict[gene]]) )
-        out_h.close()
-
-    ## t-test analysis
-    if args.ttest_thresh:
-        t_dict = find_degs(cluster, group1='_FL', group2='_SP')
-        q_dict = p_to_q([v[1] for v in t_dict.values()], display_on=not(args.display_off))
-        # report output to file:
-        t_list = []
-        out_h = open(filename[:-4] + ".t_test.list", 'w')
-        out_h.write('%-12s %-7s %-7s\n' % ('Gene','p-value', 'q-value'))
-        for gene in t_dict:
-            if q_dict[t_dict[gene][1]] <= args.ttest_thresh:
-                out_h.write( "%-12s %7.4f %.4f\n" % (gene, t_dict[gene][1],  q_dict[t_dict[gene][1]]))
-                t_list.append(gene)
-        out_h.close()
-        print "Filtering matrix to %d genes with t-test P-value less than %.2f" % (len(t_list),args.ttest_thresh)
-        cluster.filter_genes(t_list)
-    elif args.t_test:
-        t_dict = find_degs(cluster)
-        q_dict = p_to_q([v[1] for v in t_dict.values()], display_on=not(args.display_off))
-        out_h = open(filename[:-4] + ".t_test.list", 'w')
-        out_h.write('%-12s %-7s %-7s\n' % ('Gene','p-value', 'q-value'))
-        for gene in t_dict:
-            if q_dict[t_dict[gene][1]] <= args.t_test:
-                out_h.write( "%-12s %7.4f %.4f\n" % (gene, t_dict[gene][1],  q_dict[t_dict[gene][1]]))
-        out_h.close()
-
-    ## report nearest neighbours:
-
-    if args.neighbours:
-        print "\nCalculating nearest neighbours..."
-        # +1 to argument, since the first neighbour returned is the gene itself.
-        neighbour_dict = find_nearest_neighbours(cluster, args.neighbours,
-                                        numberofneighbours=args.num_neighbours + 1)
-
-        out_h = open(filename[:-4] + ".nearest_neighbours.list", 'w')
-        for neigh in neighbour_dict:
-            t_neighbours, stat_str = neighbour_dict[neigh]
-            out_h.write("## %s\n%s\n%s\n\n" % (neigh, stat_str, ",".join(t_neighbours[1:])) )
-        out_h.close()
-
-    ## bar-chart construction:
-    if args.bar_charts:
-        genelist = make_a_list(args.bar_charts, col_num=0)
-        print "Constructing bar charts for %d genes: %s" % ( len(genelist), " ".join(genelist))
-        bar_charts(cluster, genelist)
-
-    ### re-format for publication purposes:
-    ## transpose so genes are on y-axis:
-    if args.display_reverse:
-        cluster.invert_matrix()
-
-    ## display average values for each group instead of individual values
-    if args.show_averages is True:
-        cluster.average_matrix(groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96",
-                                "FL", "FP06", "FP12", "FP24","FP48", "FP96"])
-
-
-    ################ perform hierarchical clustering ####################
-    if cluster.genenumber > 1 and args.no_clustering is False:
-        try:
-            new_column_header, groups = heatmap(cluster, display=not(args.display_off), kegg=args.kegg, go=args.go_enrichment)
-        except Exception as inst:
-            print 'Error using %s ... trying euclidean instead\n%s' % (args.gene_metric, inst)
-
-            cluster.gene_metric = 'euclidean'
-            cluster.sample_metric = 'euclidean'
-            cluster.refresh_headers()
-            try:
-                new_column_header, groups = heatmap(cluster, display=not(args.display_off), kegg=args.kegg, go=args.go_enrichment)
-            except IOError:
-                print 'Error with clustering encountered'
-                new_column_header = ['']
-                groups = ['']

@@ -22,32 +22,100 @@ import hicluster
 
 ########################################################################################
 
-def make_a_list(geneobj, col_num=0):
-    """given a path, list, dictionary or string, convert into a list of genes.
-    col_num specifies the column from which to extract the gene list from."""
+def define_arguments():
+    parser = argparse.ArgumentParser(description="Performs heirarchical clustering")
 
-    # genefile can be given as a list of genes (say, from find_degs()... ), or as
-    # a path to a file containing a list of genes.
-    # The following builds a dictionary of genes from either input:
-    if type(geneobj) is list:   # allows filtering from hicluster generated list of results.
-        genelist = {}.fromkeys(geneobj,1)
-    elif type(geneobj) is dict:
-        genelist = geneobj # this of course will only work if the keys are the genes!
-    elif type(geneobj) is str:   # assuming a filepath...
-        if re.search("/",geneobj) is None:
-            genelist = {}.fromkeys(geneobj.split(','),1)
-        else:   # is a file path
-            genefile_h = open(geneobj, 'rb')
-            genelist = {}   # will be a dict of names { 'Cbir01255':1, 'CbirVgq':1, ... }
-                            # used a dictionary to automatically remove any name duplications
-            filegen = [ line.split() for line in genefile_h ]
+    # input options
+    parser.add_argument("experiments", metavar='filename', nargs='+', type=str, help="a data file for comparing")
+    parser.add_argument("-B", "--background", type=str, help="Provide a file for using as background")
+    parser.add_argument("-G", "--genes_only", action='store_true',  help="Turn off pathway comparison (much much faster)")
 
-            genefile_h.close()
+    return parser
 
-            for colset in filegen:
-                genelist[colset[col_num]]=1
+def run_arguments(args):
+    experiments = {} # dictionary to contain the lists of genes
+    i = 0
+    for file in args.experiments:
+        experiments[str(i) + '-' + os.path.basename(file)] = hicluster.make_a_list(file)
+        i += 1
 
-    return genelist
+    # check correct number of files supplied:
+    if  2 > len(experiments) > 4:
+        print "can only compare two to four experiments. You supplied %d!" % (len(experiments))
+        exit()
+
+    go_obj = genematch.GO_maker()
+
+
+    gene_pathways = {}
+    gene_sets = {}
+    path_sets = {}
+
+    for exp in experiments:
+        if args.genes_only:
+            gene_sets['G' + exp] = set(experiments[exp])
+        else:
+            print "Collecting paths for geneset", exp
+
+            # collect pathways and GO terms for each gene:
+            gene_pathways[exp]= genematch.cbir_to_pathway(experiments[exp]).values()
+
+            for godict in go_obj.fetch_gos(experiments[exp]):
+                gene_pathways[exp] += godict.keys()
+
+            # error checking to make sure only strings have been sent to the dictionary:
+            for pathway in gene_pathways[exp]:
+                if isinstance(pathway, list):
+                    print pathway
+
+            # convert gene and pathway lists to sets:
+            gene_sets['G' + exp] = set(experiments[exp])
+            path_sets['P' + exp] = set(gene_pathways[exp])
+
+
+    if args.genes_only:
+        if len(experiments) == 3:
+            venn_3way([gene_sets[exp] for exp in gene_sets], [gene_sets[exp] for exp in gene_sets], [exp for exp in gene_sets])
+        elif len(experiments) == 2:
+            venn_2way([gene_sets[exp] for exp in gene_sets], [gene_sets[exp] for exp in gene_sets], [exp for exp in gene_sets])
+            set1, set2 = [gene_sets[exp] for exp in gene_sets]
+
+            # GO enrichment of common genes:
+            pvals = genematch.go_enrichment(set1 & set2)
+            if len(pvals) > 2:
+                qvals = hicluster.p_to_q(pvals.values(), display_on=True, cut1s=True)
+                print [qvals[p] for p in qvals if qvals[p] < 0.1]
+
+                background = hicluster.make_a_list(args.background)
+                screened = [gene for gene in background if gene not in set1 & set2]
+
+                # kegg enrichment of common genes
+                pvalupper, pvalpath = genematch.kegg_pathway_enrichment(set1 & set2, screened)
+
+                qvalspath = hicluster.p_to_q(pvalpath.values(), display_on=True, cut1s=False, conservative=True)
+                qvalsupper = hicluster.p_to_q(pvalupper.values(), display_on=True, cut1s=False, conservative=True)
+
+                print "### q values of pathways ###"
+                print "\n".join([p + " " + str(qvalspath[p]) for p in qvalspath if qvalspath[p] < 0.1])
+                print "### q values of pathway types ###"
+                print "\n".join([p + " " + str(qvalsupper[p]) for p in qvalsupper if qvalsupper[p] < 0.1])
+
+
+                print "### p values of pathways ###"
+                print "\n".join([p + " " + str(pvalpath[p]) for p in pvalpath if pvalpath[p] < 0.01])
+                print "### p values of pathway types ###"
+                print "\n".join([p + " " + str(pvalupper[p]) for p in pvalupper if pvalupper[p] < 0.01])
+
+        elif len(experiments) == 4:
+            venn_4by4([gene_sets[exp] for exp in gene_sets], [gene_sets[exp] for exp in gene_sets], [exp for exp in gene_sets])
+
+    else:
+        if len(experiments) == 3:
+            venn_3way([gene_sets[exp] for exp in gene_sets], [path_sets[exp] for exp in path_sets], [exp for exp in gene_sets])
+        elif len(experiments) == 2:
+            venn_2way([gene_sets[exp] for exp in gene_sets], [path_sets[exp] for exp in path_sets], [exp for exp in gene_sets])
+        elif len(experiments) == 4:
+            venn_4by4([gene_sets[exp] for exp in gene_sets], [path_sets[exp] for exp in path_sets], [exp for exp in gene_sets])
 
 def venn_3way(genesets, pathsets, names):
     figure, axes = plt.subplots(1, 2)
@@ -158,7 +226,6 @@ def venn_2way(genesets, pathsets, names):
         pass
     plt.show()
 
-
 def old():
     figure, axes = plt.subplots(2, 2)
 
@@ -192,7 +259,7 @@ def old():
 
     for exp in experiments:
         print "Collecting paths for geneset", exp
-        diflists[exp] = make_a_list(experiments[exp])
+        diflists[exp] = hicluster.make_a_list(experiments[exp])
 
         pathway_sets['G' + exp] = set(diflists[exp])
 
@@ -252,95 +319,8 @@ def old():
 
 if __name__ == '__main__':
 
-    parser = argparse.ArgumentParser(description="Performs heirarchical clustering")
-
-    # input options
-    parser.add_argument("-E", "--experiments", type=str, help="comma-delimited list of data files for comparing")
-    parser.add_argument("-B", "--background", type=str, help="Provide a file for using as background")
-    parser.add_argument("-G", "--genes_only", action='store_true',  help="Turn off pathway comparison (much much faster)")
+    parser = define_arguments()
 
     args = parser.parse_args()
 
-    experiments = {} # dictionary to contain the lists of genes
-    i = 0
-    for file in args.experiments.split(','):
-        experiments[str(i) + '-' + os.path.basename(file)] = make_a_list(file)
-        i += 1
-
-    # check correct number of files supplied:
-    if  2 > len(experiments) > 4:
-        print "can only compare two to four experiments. You supplied %d!" % (len(experiments))
-        exit()
-
-    go_obj = genematch.GO_maker()
-
-
-    gene_pathways = {}
-    gene_sets = {}
-    path_sets = {}
-
-    for exp in experiments:
-        if args.genes_only:
-            gene_sets['G' + exp] = set(experiments[exp])
-        else:
-            print "Collecting paths for geneset", exp
-
-            # collect pathways and GO terms for each gene:
-            gene_pathways[exp]= genematch.cbir_to_pathway(experiments[exp]).values()
-
-            for godict in go_obj.fetch_gos(experiments[exp]):
-                gene_pathways[exp] += godict.keys()
-
-            # error checking to make sure only strings have been sent to the dictionary:
-            for pathway in gene_pathways[exp]:
-                if isinstance(pathway, list):
-                    print pathway
-
-            # convert gene and pathway lists to sets:
-            gene_sets['G' + exp] = set(experiments[exp])
-            path_sets['P' + exp] = set(gene_pathways[exp])
-
-
-    if args.genes_only:
-        if len(experiments) == 3:
-            venn_3way([gene_sets[exp] for exp in gene_sets], [gene_sets[exp] for exp in gene_sets], [exp for exp in gene_sets])
-        elif len(experiments) == 2:
-            venn_2way([gene_sets[exp] for exp in gene_sets], [gene_sets[exp] for exp in gene_sets], [exp for exp in gene_sets])
-            set1, set2 = [gene_sets[exp] for exp in gene_sets]
-
-            # GO enrichment of common genes:
-            pvals = genematch.go_enrichment(set1 & set2)
-            qvals = hicluster.p_to_q(pvals.values(), display_on=True, cut1s=True)
-            print [qvals[p] for p in qvals if qvals[p] < 0.1]
-
-            background = hicluster.make_a_list(args.background)
-            screened = [gene for gene in background if gene not in set1 & set2]
-
-            # kegg enrichment of common genes
-            pvalupper, pvalpath = genematch.kegg_pathway_enrichment(set1 & set2, screened)
-
-            qvalspath = hicluster.p_to_q(pvalpath.values(), display_on=True, cut1s=False, conservative=True)
-            qvalsupper = hicluster.p_to_q(pvalupper.values(), display_on=True, cut1s=False, conservative=True)
-
-            print "### q values of pathways ###"
-            print "\n".join([p + " " + str(qvalspath[p]) for p in qvalspath if qvalspath[p] < 0.1])
-            print "### q values of pathway types ###"
-            print "\n".join([p + " " + str(qvalsupper[p]) for p in qvalsupper if qvalsupper[p] < 0.1])
-
-
-            print "### p values of pathways ###"
-            print "\n".join([p + " " + str(pvalpath[p]) for p in pvalpath if pvalpath[p] < 0.01])
-            print "### p values of pathway types ###"
-            print "\n".join([p + " " + str(pvalupper[p]) for p in pvalupper if pvalupper[p] < 0.01])
-
-        elif len(experiments) == 4:
-            venn_4by4([gene_sets[exp] for exp in gene_sets], [gene_sets[exp] for exp in gene_sets], [exp for exp in gene_sets])
-
-    else:
-        if len(experiments) == 3:
-            venn_3way([gene_sets[exp] for exp in gene_sets], [path_sets[exp] for exp in path_sets], [exp for exp in gene_sets])
-        elif len(experiments) == 2:
-            venn_2way([gene_sets[exp] for exp in gene_sets], [path_sets[exp] for exp in path_sets], [exp for exp in gene_sets])
-        elif len(experiments) == 4:
-            venn_4by4([gene_sets[exp] for exp in gene_sets], [path_sets[exp] for exp in path_sets], [exp for exp in gene_sets])
-
+    run_arguments(args)
