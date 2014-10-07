@@ -439,8 +439,8 @@ class Cluster(object):
                 print gene, "not found. Not keeping."
 
         hitlist = range(len(self.gene_header))
+        err_ct = 0
         for posn in keeplist: # will be the inverse of keeplist
-            err_ct = 0
             try:
                 hitlist.remove(posn)
             except Exception as inst:
@@ -669,6 +669,7 @@ class Cluster(object):
             print "%-25s %.2f" % (sample, value)
 
     def randomise_samples(self):
+        numpy.random.seed(int(time.time()))
         neworder = numpy.random.shuffle(self.sample_header)
 
 # #                                                                              # #
