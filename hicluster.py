@@ -738,10 +738,9 @@ def define_arguments():
 
     return parser
 
-def run_arguments(args):
-
-    # turn on printing with color conversion capability!
-    if args.verbose:
+def check_verbose(v=True):
+    "allow optional printing with color conversion capability!"
+    if v:
         def verbalise(arg1, color="", *args):
             # define escape code: '\x1b[31m  %s  \x1b[0m'
             colordict = {'R':'\x1b[31m', 'G':'\x1b[32m',
@@ -762,6 +761,10 @@ def run_arguments(args):
             print "%s%s%s" % (color_code, argstring, end_color)
     else:
         verbalise = lambda *a: None
+
+def run_arguments(args):
+
+    check_verbose(args.verbose)
 
     ## create data table from cufflinks files:
     if args.build_list:
