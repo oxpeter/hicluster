@@ -669,6 +669,7 @@ class Cluster(object):
             print "%-25s %.2f" % (sample, value)
 
     def randomise_samples(self):
+        self.oldref = self.sample_header[:]
         numpy.random.seed(int(time.time()))
         neworder = numpy.random.shuffle(self.sample_header)
 
@@ -693,6 +694,7 @@ def define_arguments():
     # output options
     parser.add_argument("-o", "--output_file", dest='filename', type=str, default=None, help="output file path and root name for results")
     parser.add_argument("-e", "--export_table", action='store_true', help="export transformed expression matrix")
+    parser.add_argument("-v", "--verbose", action='store_true', help="print descriptive output while processing")
     # analysis options
     parser.add_argument("--no_clustering", action='store_true', help="Turn of clustering. Performs data transformation, filtering and analysis, then exits")
     parser.add_argument("-R", "--sample_method", type=str, default='complete', help="The clustering method for samples \n(single, average, complete, etc)")
@@ -737,6 +739,30 @@ def define_arguments():
     return parser
 
 def run_arguments(args):
+
+    # turn on printing with color conversion capability!
+    if args.verbose:
+        def verbalise(arg1, color="", *args):
+            # define escape code: '\x1b[31m  %s  \x1b[0m'
+            colordict = {'R':'\x1b[31m', 'G':'\x1b[32m',
+                 'Y':'\x1b[33m' ,'B':'\x1b[34m', 'M':'\x1b[35m' , 'C':'\x1b[36m' }
+            if color in colordict:
+                argstring = " ".join([arg1] + [arg for arg in args])
+                if sys.stdout.isatty():
+                    color_code = colordict[color]
+                    end_color = '\x1b[0m'
+                else:
+                    color_code = ""
+                    end_color = ""
+            else:
+                argstring = " ".join([arg1, color] + [arg for arg in args])
+                color_code = ""
+                end_color = ""
+
+            print "%s%s%s" % (color_code, argstring, end_color)
+    else:
+        verbalise = lambda *a: None
+
     ## create data table from cufflinks files:
     if args.build_list:
         data_table = create_table(args.build_list)
@@ -1017,8 +1043,8 @@ def heatmap(cluster, display=True,kegg=False, go=False):
     #OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
     #SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-    print "\nPerforming hiearchical clustering using %s for columns and %s for rows" % \
-            (cluster.column_metric, cluster.row_metric)
+    verbalise("\nPerforming hiearchical clustering using %s for columns and %s for rows" % \
+            (cluster.column_metric, cluster.row_metric))
 
     """
     This below code is based in large part on the protype methods:
@@ -1028,14 +1054,15 @@ def heatmap(cluster, display=True,kegg=False, go=False):
     cluster.data_matrix is an m by n ndarray, m observations, n genes
     """
 
-    print "clustering %d genes and %d samples." % (cluster.genenumber, cluster.samplesize )
+    verbalise("clustering %d genes and %d samples." % \
+            (cluster.genenumber, cluster.samplesize ))
 
     ### Define the color gradient to use based on the provided name
     n = cluster.genenumber; m = cluster.samplesize
 
     ### Scale the max and min colors so that 0 is white/black
     vmax, vmin = cluster.getColorRange()
-    print "Vmax: %.2f\tVmin: %.2f" % (vmax, vmin)
+    verbalise("Vmax: %.2f\tVmin: %.2f" % (vmax, vmin))
     norm = mpl.colors.Normalize(vmin/2, vmax/2) ### adjust the max and min to scale these colors
 
     ### Scale the Matplotlib window size
@@ -1095,7 +1122,7 @@ def heatmap(cluster, display=True,kegg=False, go=False):
         ax2.set_xticks([]) ### Hides ticks
         ax2.set_yticks([])
         time_diff = str(round(time.time()-start_time,1))
-        print 'Column clustering completed in %s seconds' % time_diff
+        verbalise('Column clustering completed in %s seconds' % time_diff)
     else:
         ind2 = ['NA']*len(cluster.column_header) ### Used for exporting the flat cluster data
 
@@ -1111,7 +1138,7 @@ def heatmap(cluster, display=True,kegg=False, go=False):
         ax1.set_xticks([]) ### Hides ticks
         ax1.set_yticks([])
         time_diff = str(round(time.time()-start_time,1))
-        print 'Row clustering completed in %s seconds' % time_diff
+        verbalise('Row clustering completed in %s seconds' % time_diff)
     else:
         ind1 = ['NA']*len(cluster.row_header) ### Used for exporting the flat cluster data
 
@@ -1169,7 +1196,7 @@ def heatmap(cluster, display=True,kegg=False, go=False):
             except KeyError:
                 genelistd[group] = [geneid]
 
-        print "\nPerforming GO enrichment analysis for %d groups" % (len(genelistd))
+        verbalise("\nPerforming GO enrichment analysis for %d groups" % (len(genelistd)), "Y")
         out_h = open(cluster.exportPath[:-4] + ".GO_enrichment.list", 'w')
 
         out_h.write("%-4s %-11s %-7s %-7s %s\n" % ("Grp", "GO-term", "p-value", "q-value", "Definition"))
@@ -1202,7 +1229,7 @@ def heatmap(cluster, display=True,kegg=False, go=False):
             except KeyError:
                 genelistd[group] = [geneid]
 
-        print "\nPerforming KEGG pathway enrichment analysis for %d groups" % (len(genelistd))
+        verbalise("\nPerforming KEGG pathway enrichment analysis for %d groups" % (len(genelistd)), "Y")
         out_h = open(cluster.exportPath[:-4] + ".KEGG_enrichment.list", 'w')
 
         out_h.write("Group KEGG pathway P-value\n")
@@ -1269,7 +1296,7 @@ def heatmap(cluster, display=True,kegg=False, go=False):
         plt.rcParams['font.size'] = 10 #8
 
     plt.savefig(pdfname)
-    print 'Exporting:',pdfname
+    verbalise('Exporting:',"B",pdfname)
     filename = cluster.exportPath[:-4]+'.png'
     plt.savefig(pdfname, dpi=200) #,dpi=100
     if display:
@@ -1380,7 +1407,7 @@ def create_table(build_list):
     all_files = build_list.split(',')
 
     output_file = os.getcwd() + "/fpkm_table.tbl"
-    print "saving built table to file ", output_file
+    verbalise("saving built table to file ", "B", output_file)
 
     awk_cmd = """awk '!($10~/FPKM/){\
     gene_sample[$1,FILENAME]=$9;\
@@ -1547,7 +1574,7 @@ def find_degs(cluster, group1="_FL", group2="_SP"):
     limits = [0] + cluster.reorder_matrix(groups=[group1,group2])
     t_dict = {}
 
-    print "Performing t-test"
+    verbalise("Performing t-test", "Y")
 
     for g in range(cluster.genenumber):
         exvalues = [cluster.data_matrix[limits[x]:limits[x+1],g] for x in range(len(limits) - 1)]
@@ -1557,7 +1584,7 @@ def find_degs(cluster, group1="_FL", group2="_SP"):
 
     return t_dict
 
-def degs_anova(cluster, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96", "FL", "FP06", "FP12", "FP24","FP48", "FP96" ], onegene=False):
+def degs_anova(cluster, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96", "FL", "FP06", "FP12", "FP24","FP48", "FP96" ], onegene=False, verbose=True):
     "finds DEGs using ANOVA and returns dictionary { Gene:P-value }"
     ### change to return {Gene: F-stat, Pval }
     # will only work if genes are columns in matrix
@@ -1588,9 +1615,10 @@ def degs_anova(cluster, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96", "FL
                 cluster.data_matrix[limits[10]:limits[11],g])
             A_dict[cluster.gene_header[g]] = p_val
         except:
-            print "Gene %s not found!" % (onegene)
+            if verbose:
+                print "Gene %s not found!" % (onegene)
     else:
-        print "Performing ANOVA for %d genes" % (cluster.genenumber)
+        verbalise("Performing ANOVA for %d genes" % (cluster.genenumber))
         #print "limits for anova:",limits
         for g in range(cluster.genenumber):
             f_val, p_val = stats.f_oneway(cluster.data_matrix[:limits[0],g],\
@@ -1738,10 +1766,10 @@ def normalise_es(score, distribution):
     return nes, distribution
 
 def gene_set_enrichment(cluster, permutations=1000, processes=3, display_on=True, showbest=5):
-    print "\n## Performing gene set enrichment analysis ##"
+    verbalise("\n## Performing gene set enrichment analysis ##", "C")
     snr_dict = signal_to_noise(cluster)
 
-    print "Calculating pathway enrichment scores..."
+    verbalise("Calculating pathway enrichment scores...", "Y")
     opaths, smallpaths = genematch.collect_kegg_pathways(minsize=10)
     opaths.update(smallpaths)
     opaths.update(genematch.collect_ipr_pathways(minsize=10))
@@ -1757,7 +1785,7 @@ def gene_set_enrichment(cluster, permutations=1000, processes=3, display_on=True
             es[pathway] = enrichment_score(snr_dict, paths[pathway], pathway=pathway, display_on=False)
     #print paths.keys()[:5]
     # computing significance:
-    print "Permuting pathways %d times" % permutations
+    verbalise("Permuting pathways %d times" % permutations, "Y")
 
     t = time.time()
 
@@ -1781,11 +1809,11 @@ def gene_set_enrichment(cluster, permutations=1000, processes=3, display_on=True
 
         if (n+1) in rand_es_dict:
             if rand_es_dict[n] == rand_es_dict[n + 1]:
-                print "*** WARNING: PERMUTATIONS ARE NOT RANDOM! ***"
+                verbalise("*** WARNING: PERMUTATIONS ARE NOT RANDOM! ***", "R")
     calc_time = time.time() - t
     m, s = divmod(calc_time, 60)
     h, m = divmod(m, 60)
-    print "Total calculation time: %d:%02d:%02d" % (h, m, s)
+    verbalise("Total calculation time: %d:%02d:%02d" % (h, m, s))
 
     rand_es = {}
     for path in rand_es_dict[0]:
@@ -1850,6 +1878,43 @@ def permute_data(cluster, queue, permutations, paths ):
         for path in paths:
             rand_es[path].append(enrichment_score(snr_dict, paths[path]))
     queue.put(rand_es)
+
+def randomise_and_analyse(cluster, processes=3):
+    verbalise("Permuting pathways on %d cores" % processes, "Y")
+
+    t = time.time()
+
+    p = {}
+    q = {}
+    proc = {}
+    rand_es_dict = {}
+    for n in range(processes):
+        p[n] = Permutable(cluster)
+        q[n] = Queue()
+        proc[n] = Process(target=permute_data, args=(p[n], q[n], (permutations + processes - 1) / processes, paths))
+    # change last process to run with progress bar:
+    proc[n] = Process(target=permute_data_progress, args=(p[n], q[n], (permutations + processes - 1) / processes, paths))
+
+    for n in range(processes):
+        proc[n].start()
+
+    for n in range(processes):
+        rand_es_dict[n] = q[n].get()
+        proc[n].join()
+
+        if (n+1) in rand_es_dict:
+            if rand_es_dict[n] == rand_es_dict[n + 1]:
+                verbalise("*** WARNING: PERMUTATIONS ARE NOT RANDOM! ***", "R")
+    calc_time = time.time() - t
+    m, s = divmod(calc_time, 60)
+    h, m = divmod(m, 60)
+    verbalise("Total calculation time: %d:%02d:%02d" % (h, m, s))
+
+    rand_es = {}
+    for path in rand_es_dict[0]:
+        rand_es[path] = rand_es_dict[0][path]
+        for n in range(processes)[1:]:
+            rand_es[path] += rand_es_dict[n][path]
 
 def permute_data_progress(cluster, queue, permutations, paths):
 
@@ -1964,7 +2029,7 @@ def bar_charts(cluster, genelist, groups=["SP", "SL06", "SL12", "SL24","SL48", "
         try:
             posthoc = pairwise_tukeyhsd(cluster.data_matrix[:,pos],gm)
         except Exception as inst:
-            print "Tukey calculation error - check that you have >1 value for each category."
+            verbalise("Tukey calculation error - check that you have >1 value for each category.", "R")
             print inst
             continue
         phimg = posthoc.plot_simultaneous(comparison_name='SP', \
@@ -2022,7 +2087,7 @@ def expression_peaks(cluster, magnitude, group1 = [ "SP", "SL06", "SL12", "SL24"
     """
     if cluster.averaged == False:
         cluster.average_matrix(group1 + group2)
-    print cluster.sample_header
+    verbalise(cluster.sample_header, "G")
     peaklist = {}
 
     for gene in range(cluster.genenumber):
@@ -2060,11 +2125,11 @@ def expression_peaks(cluster, magnitude, group1 = [ "SP", "SL06", "SL12", "SL24"
 
                     peaklist[cluster.gene_header[gene]] = (group1 + group2)[maxposn]
             except IndexError as inst:
-                print inst
-                print datalist
-                print "Max is %.3f at position %d" % (maxexpression, maxposn)
+                verbalise(inst, "R")
+                verbalise(datalist, "R")
+                verbalise("Max is %.3f at position %d" % (maxexpression, maxposn), "R")
 
-    print len(peaklist), "significant peaks found."
+    verbalise(len(peaklist), "G",  "significant peaks found.")
     return peaklist
 
 def p_to_q(pvalues, display_on=False, cut1s=False, conservative=False):
@@ -2107,7 +2172,7 @@ def p_to_q(pvalues, display_on=False, cut1s=False, conservative=False):
         spline_half = interpolate.splev(numpy.arange(0,1.0,0.01), tck_half, der=0)
         pi0_hat_half = interpolate.splev(1, tck_half, der=0)
         pi0_hat = pi0_hat_half
-        print "pi0_hat > 1! Likely skewed P-value distribution. Converting to ", pi0_hat_half
+        verbalise("pi0_hat > 1! Likely skewed P-value distribution. Converting to ", "R", pi0_hat_half)
     if conservative:
         pi0_hat = 1
     if display_on:
