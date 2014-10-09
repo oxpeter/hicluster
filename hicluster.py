@@ -208,9 +208,9 @@ class Cluster(object):
 
         time_diff = str(round(time.time()-start_time,1))
         try:
-            print '\n%d rows and %d columns imported for %s in %s seconds...' % (len(matrix),len(column_header),dataset_name,time_diff)
+            verbalise('\n%d rows and %d columns imported for %s in %s seconds...' % (len(matrix),len(column_header),dataset_name,time_diff))
         except Exception:
-            print 'No data in input file.'; force_error
+            verbalise('No data in input file.', "R"); force_error
 
         self.data_matrix    = numpy.array(matrix)
         self.column_header  = column_header
@@ -376,8 +376,8 @@ class Cluster(object):
     def normaliseData(self, center=True, norm_var=True, log_t=True, sample_norm=False):
         "center, normalize and/or log transform the array x"
 
-        print "\n\nNormalising data according to input parameters."
-        print "Initial value range in matrix:       %s - %-4.3f" % ('{0: 3.3f}'.format(self.data_matrix.min()), self.data_matrix.max())
+        verbalise("\n\nNormalising data according to input parameters.", "Y")
+        verbalise("Initial value range in matrix:       %s - %-4.3f" % ('{0: 3.3f}'.format(self.data_matrix.min()), self.data_matrix.max()), "G")
         if log_t:
             count = 0
             k = self.data_matrix.min()
@@ -389,7 +389,7 @@ class Cluster(object):
                     #    print "gene %d sample %d: %r (%s) %r" % (g, i, self.data_matrix[:,g][i], type(self.data_matrix[:,g][i]), numpy.log2(self.data_matrix[:,g][i] + 1))
                     self.data_matrix[:,g][i] = numpy.log2(self.data_matrix[:,g][i] - k + 1)
 
-            print "log2(FPKM + k) transformed. New range: %-4.3f - %-4.3f" % (self.data_matrix.min(), self.data_matrix.max())
+            verbalise("log2(FPKM + k) transformed. New range: %-4.3f - %-4.3f" % (self.data_matrix.min(), self.data_matrix.max()), "G")
 
         meanlist = []   # to store for later re-adjustment of matrix
         if center and sample_norm:
@@ -406,7 +406,7 @@ class Cluster(object):
                 for i in range(self.samplesize):
                     self.data_matrix[:,g][i] = self.data_matrix[:,g][i] - ave_g
                     meanlist.append(ave_g)
-            print "Centered data. New value range:      %-4.3f - %-4.3f" % (self.data_matrix.min(), self.data_matrix.max())
+            verbalise("Centered data. New value range:      %-4.3f - %-4.3f" % (self.data_matrix.min(), self.data_matrix.max()), "G")
 
         if norm_var and sample_norm:
             # Normalising data so each *sample* has standard deviation of 1:
@@ -422,7 +422,7 @@ class Cluster(object):
                 for i in range(self.samplesize):
                     self.data_matrix[:,g][i] = self.data_matrix[:,g][i] / stdev # dividing by variance gives identical result
             print "Normalised St Dev. New value range:  %-4.3f - %-4.3f" % (self.data_matrix.min(), self.data_matrix.max())
-        print "Final value range in matrix:         %s - %-4.3f" % ('{0: 3.3f}'.format(self.data_matrix.min()), self.data_matrix.max())
+        verbalise("Final value range in matrix:         %s - %-4.3f" % ('{0: 3.3f}'.format(self.data_matrix.min()), self.data_matrix.max()),"G")
 
         return meanlist
 
@@ -436,7 +436,7 @@ class Cluster(object):
             try:
                 keeplist.append(self.gene_header.index(gene))
             except:     # some columns will be headers that would cause errors.
-                print gene, "not found. Not keeping."
+                verbalise(gene, "R", "not found. Not keeping.")
 
         hitlist = range(len(self.gene_header))
         err_ct = 0
@@ -446,7 +446,7 @@ class Cluster(object):
             except Exception as inst:
                 err_ct += 1
         if err_ct > 0:
-            print "There were %d errors encountered. Last error:\n" % (err_ct, inst)
+            verbalise("There were %d errors encountered. Last error:\n" % (err_ct, inst), "R")
         ## filter matrix with genelist:
         self.filter_matrix(hitlist)
 
@@ -478,7 +478,7 @@ class Cluster(object):
             self.invert_matrix()
             revert = True
 
-        print "Filtering %d genes and %d samples:\nMin fold change: %.1f Min expression level (at least one sample): %d Max expression level: %d" % (self.genenumber, self.samplesize, mag, min_thresh, max_thresh)
+        verbalise("Filtering %d genes and %d samples:\nMin fold change: %.1f Min expression level (at least one sample): %d Max expression level: %d" % (self.genenumber, self.samplesize, mag, min_thresh, max_thresh), "G")
 
         hitlist = []
         for g in range(self.genenumber):
@@ -506,15 +506,15 @@ class Cluster(object):
 
         # create new matrix and column_header without the columns in the hitlist:
         y = numpy.delete(self.data_matrix, hitlist, 1)
-        print "%d genes removed:" % len(hitlist)
+        verbalise("%d genes removed:" % len(hitlist))
         for gene in hitlist[::-1]:
             self.gene_header.pop(gene)
 
         self.column_header = self.gene_header
         self.data_matrix = y
-        print "The shape of the new matrix is", numpy.shape(y)
+        verbalise("The shape of the new matrix is", "G", numpy.shape(y))
         self.samplesize, self.genenumber = self.check_size()
-        print "there are now %d genes and %d samples" % (self.genenumber, self.samplesize)
+        verbalise("there are now %d genes and %d samples" % (self.genenumber, self.samplesize), "G")
 
 
 
@@ -533,7 +533,7 @@ class Cluster(object):
 
 
         if verbose:
-            print "Sorting data into %d groups" % (len(groups))
+            verbalise("Sorting data into %d groups" % (len(groups)), "Y")
 
         # split matrix based on the specified groups;
         namelist = {}
@@ -555,8 +555,8 @@ class Cluster(object):
                 removedlist.append(s)
                 self.remove_sample(s)
         if len(removedlist) > 0:
-            print("The following %d samples could not be matched to any group and were removed ==> \n%s\nGroups: %s"
-                     % (len(removedlist), " ".join(removedlist), " ".join(groups)))
+            verbalise("The following %d samples could not be matched to any group and were removed ==> \n%s\nGroups: %s"
+                     % (len(removedlist), " ".join(removedlist), " ".join(groups)), "R")
         grouporder = []
         limits = []
         boundarystone = 0
@@ -568,7 +568,7 @@ class Cluster(object):
                 grouporder += poslist[pattern]
                 boundarystone += len(poslist[pattern])
             except KeyError:
-                print pattern, "None found!"
+                verbalise(pattern,"R", "None found!")
             limits.append(boundarystone)
 
 
@@ -761,6 +761,8 @@ def check_verbose(v=True):
             print "%s%s%s" % (color_code, argstring, end_color)
     else:
         verbalise = lambda *a: None
+
+    return verbalise
 
 def run_arguments(args):
 
@@ -2275,6 +2277,8 @@ def appendkegg(geneid, ko_dictionary):
 # #                                                                              # #
 # ############################## END FUNCTIONS ################################### #
 ####################################################################################
+
+check_verbose(True)
 
 if __name__ == '__main__':
 

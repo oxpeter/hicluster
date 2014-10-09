@@ -117,6 +117,10 @@ def find_generic(sample_list):
 
 if __name__ == "__main__":
     parser = hicluster.define_arguments()
+
+    verbalise = hicluster.check_verbose(False)
+    hicluster.verbalise = hicluster.check_verbose(False)
+
     t0 = time.time()
 
     outfile = os.getcwd() + "/results.info"
