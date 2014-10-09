@@ -210,7 +210,7 @@ class Cluster(object):
         try:
             verbalise('\n%d rows and %d columns imported for %s in %s seconds...' % (len(matrix),len(column_header),dataset_name,time_diff))
         except Exception:
-            verbalise('No data in input file.', "R"); force_error
+            verbalise("R", 'No data in input file.'); force_error
 
         self.data_matrix    = numpy.array(matrix)
         self.column_header  = column_header
@@ -376,8 +376,8 @@ class Cluster(object):
     def normaliseData(self, center=True, norm_var=True, log_t=True, sample_norm=False):
         "center, normalize and/or log transform the array x"
 
-        verbalise("\n\nNormalising data according to input parameters.", "Y")
-        verbalise("Initial value range in matrix:       %s - %-4.3f" % ('{0: 3.3f}'.format(self.data_matrix.min()), self.data_matrix.max()), "G")
+        verbalise("Y", "\n\nNormalising data according to input parameters.")
+        verbalise("G", "Initial value range in matrix:       %s - %-4.3f" % ('{0: 3.3f}'.format(self.data_matrix.min()), self.data_matrix.max()))
         if log_t:
             count = 0
             k = self.data_matrix.min()
@@ -389,7 +389,7 @@ class Cluster(object):
                     #    print "gene %d sample %d: %r (%s) %r" % (g, i, self.data_matrix[:,g][i], type(self.data_matrix[:,g][i]), numpy.log2(self.data_matrix[:,g][i] + 1))
                     self.data_matrix[:,g][i] = numpy.log2(self.data_matrix[:,g][i] - k + 1)
 
-            verbalise("log2(FPKM + k) transformed. New range: %-4.3f - %-4.3f" % (self.data_matrix.min(), self.data_matrix.max()), "G")
+            verbalise("G", "log2(FPKM + k) transformed. New range: %-4.3f - %-4.3f" % (self.data_matrix.min(), self.data_matrix.max()))
 
         meanlist = []   # to store for later re-adjustment of matrix
         if center and sample_norm:
@@ -406,7 +406,7 @@ class Cluster(object):
                 for i in range(self.samplesize):
                     self.data_matrix[:,g][i] = self.data_matrix[:,g][i] - ave_g
                     meanlist.append(ave_g)
-            verbalise("Centered data. New value range:      %-4.3f - %-4.3f" % (self.data_matrix.min(), self.data_matrix.max()), "G")
+            verbalise("G", "Centered data. New value range:      %-4.3f - %-4.3f" % (self.data_matrix.min(), self.data_matrix.max()))
 
         if norm_var and sample_norm:
             # Normalising data so each *sample* has standard deviation of 1:
@@ -421,8 +421,8 @@ class Cluster(object):
                 stdev = numpy.std(self.data_matrix[:,g])
                 for i in range(self.samplesize):
                     self.data_matrix[:,g][i] = self.data_matrix[:,g][i] / stdev # dividing by variance gives identical result
-            print "Normalised St Dev. New value range:  %-4.3f - %-4.3f" % (self.data_matrix.min(), self.data_matrix.max())
-        verbalise("Final value range in matrix:         %s - %-4.3f" % ('{0: 3.3f}'.format(self.data_matrix.min()), self.data_matrix.max()),"G")
+            verbalise("G", "Normalised St Dev. New value range:  %-4.3f - %-4.3f" % (self.data_matrix.min(), self.data_matrix.max()))
+        verbalise("G", "Final value range in matrix:         %s - %-4.3f" % ('{0: 3.3f}'.format(self.data_matrix.min()), self.data_matrix.max()))
 
         return meanlist
 
@@ -436,7 +436,7 @@ class Cluster(object):
             try:
                 keeplist.append(self.gene_header.index(gene))
             except:     # some columns will be headers that would cause errors.
-                verbalise(gene, "R", "not found. Not keeping.")
+                verbalise("R", gene, "not found. Not keeping.")
 
         hitlist = range(len(self.gene_header))
         err_ct = 0
@@ -446,7 +446,7 @@ class Cluster(object):
             except Exception as inst:
                 err_ct += 1
         if err_ct > 0:
-            verbalise("There were %d errors encountered. Last error:\n" % (err_ct, inst), "R")
+            verbalise("R", "There were %d errors encountered. Last error:\n" % (err_ct, inst))
         ## filter matrix with genelist:
         self.filter_matrix(hitlist)
 
@@ -478,7 +478,7 @@ class Cluster(object):
             self.invert_matrix()
             revert = True
 
-        verbalise("Filtering %d genes and %d samples:\nMin fold change: %.1f Min expression level (at least one sample): %d Max expression level: %d" % (self.genenumber, self.samplesize, mag, min_thresh, max_thresh), "G")
+        verbalise("G", "Filtering %d genes and %d samples:\nMin fold change: %.1f Min expression level (at least one sample): %d Max expression level: %d" % (self.genenumber, self.samplesize, mag, min_thresh, max_thresh))
 
         hitlist = []
         for g in range(self.genenumber):
@@ -512,9 +512,9 @@ class Cluster(object):
 
         self.column_header = self.gene_header
         self.data_matrix = y
-        verbalise("The shape of the new matrix is", "G", numpy.shape(y))
+        #verbalise("G", "The shape of the new matrix is", numpy.shape(y))
         self.samplesize, self.genenumber = self.check_size()
-        verbalise("there are now %d genes and %d samples" % (self.genenumber, self.samplesize), "G")
+        verbalise("G", "there are now %d genes and %d samples" % (self.genenumber, self.samplesize))
 
 
 
@@ -533,7 +533,7 @@ class Cluster(object):
 
 
         if verbose:
-            verbalise("Sorting data into %d groups" % (len(groups)), "Y")
+            verbalise("Y", "Sorting data into %d groups" % (len(groups)))
 
         # split matrix based on the specified groups;
         namelist = {}
@@ -555,8 +555,8 @@ class Cluster(object):
                 removedlist.append(s)
                 self.remove_sample(s)
         if len(removedlist) > 0:
-            verbalise("The following %d samples could not be matched to any group and were removed ==> \n%s\nGroups: %s"
-                     % (len(removedlist), " ".join(removedlist), " ".join(groups)), "R")
+            verbalise("R", "The following %d samples could not be matched to any group and were removed ==> \n%s\nGroups: %s"
+                     % (len(removedlist), " ".join(removedlist), " ".join(groups)))
         grouporder = []
         limits = []
         boundarystone = 0
@@ -568,7 +568,7 @@ class Cluster(object):
                 grouporder += poslist[pattern]
                 boundarystone += len(poslist[pattern])
             except KeyError:
-                verbalise(pattern,"R", "None found!")
+                verbalise("R", pattern, "None found!")
             limits.append(boundarystone)
 
 
@@ -738,27 +738,30 @@ def define_arguments():
 
     return parser
 
+def verbalise(arg1, *args):
+    # define escape code: '\x1b[31m  %s  \x1b[0m'
+    colordict = {'R':'\x1b[31m', 'G':'\x1b[32m',
+         'Y':'\x1b[33m' ,'B':'\x1b[34m', 'M':'\x1b[35m' , 'C':'\x1b[36m' }
+    if arg1 in colordict:
+        argstring = " ".join([arg for arg in args])
+        if sys.stdout.isatty():
+            color_code = colordict[arg1]
+            end_color = '\x1b[0m'
+        else:
+            color_code = ""
+            end_color = ""
+    else:
+        argstring = " ".join([arg1] + [arg for arg in args])
+        color_code = ""
+        end_color = ""
+
+    print "%s%s%s" % (color_code, argstring, end_color)
+
 def check_verbose(v=True):
     "allow optional printing with color conversion capability!"
+    global verbalise
     if v:
-        def verbalise(arg1, color="", *args):
-            # define escape code: '\x1b[31m  %s  \x1b[0m'
-            colordict = {'R':'\x1b[31m', 'G':'\x1b[32m',
-                 'Y':'\x1b[33m' ,'B':'\x1b[34m', 'M':'\x1b[35m' , 'C':'\x1b[36m' }
-            if color in colordict:
-                argstring = " ".join([arg1] + [arg for arg in args])
-                if sys.stdout.isatty():
-                    color_code = colordict[color]
-                    end_color = '\x1b[0m'
-                else:
-                    color_code = ""
-                    end_color = ""
-            else:
-                argstring = " ".join([arg1, color] + [arg for arg in args])
-                color_code = ""
-                end_color = ""
-
-            print "%s%s%s" % (color_code, argstring, end_color)
+        verbalise = verbalise
     else:
         verbalise = lambda *a: None
 
@@ -766,7 +769,7 @@ def check_verbose(v=True):
 
 def run_arguments(args):
 
-    check_verbose(args.verbose)
+    vfunc = check_verbose(True)
 
     ## create data table from cufflinks files:
     if args.build_list:
@@ -1048,7 +1051,7 @@ def heatmap(cluster, display=True,kegg=False, go=False):
     #OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
     #SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-    verbalise("\nPerforming hiearchical clustering using %s for columns and %s for rows" % \
+    verbalise("Y", "\nPerforming heirarchical clustering using %s for columns and %s for rows" % \
             (cluster.column_metric, cluster.row_metric))
 
     """
@@ -1059,7 +1062,7 @@ def heatmap(cluster, display=True,kegg=False, go=False):
     cluster.data_matrix is an m by n ndarray, m observations, n genes
     """
 
-    verbalise("clustering %d genes and %d samples." % \
+    verbalise("G", "clustering %d genes and %d samples." % \
             (cluster.genenumber, cluster.samplesize ))
 
     ### Define the color gradient to use based on the provided name
@@ -1201,7 +1204,7 @@ def heatmap(cluster, display=True,kegg=False, go=False):
             except KeyError:
                 genelistd[group] = [geneid]
 
-        verbalise("\nPerforming GO enrichment analysis for %d groups" % (len(genelistd)), "Y")
+        verbalise("Y", "\nPerforming GO enrichment analysis for %d groups" % (len(genelistd)))
         out_h = open(cluster.exportPath[:-4] + ".GO_enrichment.list", 'w')
 
         out_h.write("%-4s %-11s %-7s %-7s %s\n" % ("Grp", "GO-term", "p-value", "q-value", "Definition"))
@@ -1234,7 +1237,7 @@ def heatmap(cluster, display=True,kegg=False, go=False):
             except KeyError:
                 genelistd[group] = [geneid]
 
-        verbalise("\nPerforming KEGG pathway enrichment analysis for %d groups" % (len(genelistd)), "Y")
+        verbalise("Y", "\nPerforming KEGG pathway enrichment analysis for %d groups" % (len(genelistd)))
         out_h = open(cluster.exportPath[:-4] + ".KEGG_enrichment.list", 'w')
 
         out_h.write("Group KEGG pathway P-value\n")
@@ -1301,7 +1304,7 @@ def heatmap(cluster, display=True,kegg=False, go=False):
         plt.rcParams['font.size'] = 10 #8
 
     plt.savefig(pdfname)
-    verbalise('Exporting:',"B",pdfname)
+    verbalise("B",'Exporting:',pdfname)
     filename = cluster.exportPath[:-4]+'.png'
     plt.savefig(pdfname, dpi=200) #,dpi=100
     if display:
@@ -1412,7 +1415,7 @@ def create_table(build_list):
     all_files = build_list.split(',')
 
     output_file = os.getcwd() + "/fpkm_table.tbl"
-    verbalise("saving built table to file ", "B", output_file)
+    verbalise("B", "saving built table to file ", output_file)
 
     awk_cmd = """awk '!($10~/FPKM/){\
     gene_sample[$1,FILENAME]=$9;\
@@ -1579,7 +1582,7 @@ def find_degs(cluster, group1="_FL", group2="_SP"):
     limits = [0] + cluster.reorder_matrix(groups=[group1,group2])
     t_dict = {}
 
-    verbalise("Performing t-test", "Y")
+    verbalise("Y", "Performing t-test")
 
     for g in range(cluster.genenumber):
         exvalues = [cluster.data_matrix[limits[x]:limits[x+1],g] for x in range(len(limits) - 1)]
@@ -1623,7 +1626,7 @@ def degs_anova(cluster, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96", "FL
             if verbose:
                 print "Gene %s not found!" % (onegene)
     else:
-        verbalise("Performing ANOVA for %d genes" % (cluster.genenumber))
+        verbalise("Y", "Performing ANOVA for %d genes" % (cluster.genenumber))
         #print "limits for anova:",limits
         for g in range(cluster.genenumber):
             f_val, p_val = stats.f_oneway(cluster.data_matrix[:limits[0],g],\
@@ -1771,10 +1774,10 @@ def normalise_es(score, distribution):
     return nes, distribution
 
 def gene_set_enrichment(cluster, permutations=1000, processes=3, display_on=True, showbest=5):
-    verbalise("\n## Performing gene set enrichment analysis ##", "C")
+    verbalise("C", "\n## Performing gene set enrichment analysis ##")
     snr_dict = signal_to_noise(cluster)
 
-    verbalise("Calculating pathway enrichment scores...", "Y")
+    verbalise("Y", "Calculating pathway enrichment scores...")
     opaths, smallpaths = genematch.collect_kegg_pathways(minsize=10)
     opaths.update(smallpaths)
     opaths.update(genematch.collect_ipr_pathways(minsize=10))
@@ -1790,7 +1793,7 @@ def gene_set_enrichment(cluster, permutations=1000, processes=3, display_on=True
             es[pathway] = enrichment_score(snr_dict, paths[pathway], pathway=pathway, display_on=False)
     #print paths.keys()[:5]
     # computing significance:
-    verbalise("Permuting pathways %d times" % permutations, "Y")
+    verbalise("Y", "Permuting pathways %d times" % permutations)
 
     t = time.time()
 
@@ -1814,7 +1817,7 @@ def gene_set_enrichment(cluster, permutations=1000, processes=3, display_on=True
 
         if (n+1) in rand_es_dict:
             if rand_es_dict[n] == rand_es_dict[n + 1]:
-                verbalise("*** WARNING: PERMUTATIONS ARE NOT RANDOM! ***", "R")
+                verbalise("R", "*** WARNING: PERMUTATIONS ARE NOT RANDOM! ***")
     calc_time = time.time() - t
     m, s = divmod(calc_time, 60)
     h, m = divmod(m, 60)
@@ -1885,7 +1888,7 @@ def permute_data(cluster, queue, permutations, paths ):
     queue.put(rand_es)
 
 def randomise_and_analyse(cluster, processes=3):
-    verbalise("Permuting pathways on %d cores" % processes, "Y")
+    verbalise("Y", "Permuting pathways on %d cores" % processes)
 
     t = time.time()
 
@@ -1909,7 +1912,7 @@ def randomise_and_analyse(cluster, processes=3):
 
         if (n+1) in rand_es_dict:
             if rand_es_dict[n] == rand_es_dict[n + 1]:
-                verbalise("*** WARNING: PERMUTATIONS ARE NOT RANDOM! ***", "R")
+                verbalise("R", "*** WARNING: PERMUTATIONS ARE NOT RANDOM! ***")
     calc_time = time.time() - t
     m, s = divmod(calc_time, 60)
     h, m = divmod(m, 60)
@@ -2034,7 +2037,7 @@ def bar_charts(cluster, genelist, groups=["SP", "SL06", "SL12", "SL24","SL48", "
         try:
             posthoc = pairwise_tukeyhsd(cluster.data_matrix[:,pos],gm)
         except Exception as inst:
-            verbalise("Tukey calculation error - check that you have >1 value for each category.", "R")
+            verbalise("R", "Tukey calculation error - check that you have >1 value for each category.")
             print inst
             continue
         phimg = posthoc.plot_simultaneous(comparison_name='SP', \
@@ -2092,7 +2095,7 @@ def expression_peaks(cluster, magnitude, group1 = [ "SP", "SL06", "SL12", "SL24"
     """
     if cluster.averaged == False:
         cluster.average_matrix(group1 + group2)
-    verbalise(cluster.sample_header, "G")
+    verbalise("G", cluster.sample_header)
     peaklist = {}
 
     for gene in range(cluster.genenumber):
@@ -2130,11 +2133,11 @@ def expression_peaks(cluster, magnitude, group1 = [ "SP", "SL06", "SL12", "SL24"
 
                     peaklist[cluster.gene_header[gene]] = (group1 + group2)[maxposn]
             except IndexError as inst:
-                verbalise(inst, "R")
-                verbalise(datalist, "R")
-                verbalise("Max is %.3f at position %d" % (maxexpression, maxposn), "R")
+                verbalise("R", inst)
+                verbalise("R", datalist)
+                verbalise("R", "Max is %.3f at position %d" % (maxexpression, maxposn))
 
-    verbalise(len(peaklist), "G",  "significant peaks found.")
+    verbalise("G", len(peaklist),  "significant peaks found.")
     return peaklist
 
 def p_to_q(pvalues, display_on=False, cut1s=False, conservative=False):
@@ -2177,7 +2180,7 @@ def p_to_q(pvalues, display_on=False, cut1s=False, conservative=False):
         spline_half = interpolate.splev(numpy.arange(0,1.0,0.01), tck_half, der=0)
         pi0_hat_half = interpolate.splev(1, tck_half, der=0)
         pi0_hat = pi0_hat_half
-        verbalise("pi0_hat > 1! Likely skewed P-value distribution. Converting to ", "R", pi0_hat_half)
+        verbalise("R", "pi0_hat > 1! Likely skewed P-value distribution. Converting to ", pi0_hat_half)
     if conservative:
         pi0_hat = 1
     if display_on:
@@ -2278,7 +2281,7 @@ def appendkegg(geneid, ko_dictionary):
 # ############################## END FUNCTIONS ################################### #
 ####################################################################################
 
-check_verbose(True)
+
 
 if __name__ == '__main__':
 
