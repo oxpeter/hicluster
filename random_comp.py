@@ -79,28 +79,21 @@ def compare_results(smpl_bs, smpl_meth, bsfile, methfile, outfile, t0, icnt):
         " ".join(list(smpl_bs)), " ".join(list(smpl_meth))
         ))
     out_h.close()
-    t1 = time.time()
-    taken = t1 - t0
-    ave_speed = taken / (icnt+1)
-    t_remaining = (7000 - icnt) * ave_speed
-    m, s = divmod(t_remaining, 60)
-    h, m = divmod(m, 60)
-    print("%d iterations complete. Approx %d:%d:%d remaining\r" % (icnt, h, m, s))
     if num_common == 0:
         os.system('rm ' + degs_bs[3])
         os.system('rm ' + degs_meth[3])
 
-def proceed(bs_smpl, meth_smpl, record_dict):
+def have_record(bs_smpl, meth_smpl, record_dict):
     "Determine whether this pattern of Forg and Stat has been tested yet"
     generic_bs = find_generic(bs_smpl)
     generic_meth = find_generic(meth_smpl)
 
     if (generic_bs, generic_meth) in record_dict:
-        return False
+        return True
     else:
         # add to dictionary as a completed combo:
         record_dict[(generic_bs, generic_meth)] = True
-        return True
+        return False
 
 def find_generic(sample_list):
     "Take a sample_header and convert it to '_SP' and '_FL' names only"
@@ -120,7 +113,7 @@ if __name__ == "__main__":
 
     verbalise = hicluster.check_verbose(False)
     hicluster.verbalise = hicluster.check_verbose(False)
-
+    verbalise("C", "Just for kicks")
     t0 = time.time()
 
     outfile = os.getcwd() + "/results.info"
@@ -129,8 +122,8 @@ if __name__ == "__main__":
     out_h.write("BS   Meth   Both   || B+       B-       M+       M-     || B+M+      B-M-      B+M-     B-M+ \n")
     out_h.close()
 
-    bsfile = '/home/antqueen/genomics/experiments/analyses/PRO20140917_broodswap_controls/batch_correction/batch_correction.Sep22_15.00.batch_corrected.tbl'
-    methfile = '/home/antqueen/genomics/experiments/analyses/PRO20140923_methylation_rnaseq/batch_correction/batch_correction.Sep25_11.53.batch_corrected.tbl'
+    bsfile = '/home/antqueen/genomics/experiments/analyses/PRO20140917_broodswap_controls/batch_correction/batch_correction.Sep22_15.00.data.trans.tbl'
+    methfile = '/home/antqueen/genomics/experiments/analyses/PRO20140923_methylation_rnaseq/batch_correction/batch_correction.Sep25_11.53.data.trans.tbl'
     icnt = 1
 
     filename = ".".join([os.getcwd(), "0", "list"])
@@ -151,6 +144,7 @@ if __name__ == "__main__":
 
     sample_header_meth = clustermeth.sample_header
 
+
     print sample_header_bs
     print sample_header_meth
 
@@ -167,39 +161,195 @@ if __name__ == "__main__":
     # keep a dictionary of searched groups. For each iteration, check if it
     # has already been searched, and move on if it has.
     record_dict = {}
-
+    bs_record = {}
+    p = 0
 
     # mix it up!
-    name_gen_bs = itertools.permutations(sample_header_bs)
 
-    for smpl_bs in name_gen_bs:
-        name_gen_meth = itertools.permutations(sample_header_meth)
-        for smpl_meth in name_gen_meth:
+    """
+    bsdic = {("1_FL","2_FL","3_SP","4_FL","5_FL","6_FL","7_FL","8_SP","9_SP","10_SP","11_SP","12_SP"):True,
+                ("1_SP","2_SP","3_SP","4_SP","5_FL","6_SP","7_SP","8_FL","9_FL","10_FL","11_FL","12_FL"):True,
+                ("1_FL","2_FL","3_FL","4_FL","5_SP","6_FL","7_SP","8_SP","9_FL","10_SP","11_SP","12_SP"):True,
+                ("1_FL","2_FL","3_FL","4_FL","5_SP","6_FL","7_FL","8_SP","9_SP","10_SP","11_SP","12_SP"):True,
+                ("1_FL","2_SP","3_FL","4_FL","5_SP","6_SP","7_SP","8_FL","9_FL","10_FL","11_SP","12_SP"):True,
+                ("1_SP","2_FL","3_SP","4_SP","5_FL","6_SP","7_SP","8_FL","9_FL","10_FL","11_FL","12_SP"):True,
+                ("1_SP","2_SP","3_SP","4_SP","5_FL","6_SP","7_FL","8_FL","9_SP","10_FL","11_FL","12_FL"):True,
+                ("1_FL","2_SP","3_FL","4_FL","5_SP","6_FL","7_FL","8_SP","9_SP","10_SP","11_SP","12_FL"):True,
+                ("1_SP","2_SP","3_FL","4_SP","5_FL","6_SP","7_SP","8_FL","9_FL","10_FL","11_SP","12_FL"):True,
+                ("1_SP","2_SP","3_FL","4_SP","5_SP","6_SP","7_SP","8_FL","9_FL","10_FL","11_FL","12_FL"):True,
+                ("1_FL","2_FL","3_FL","4_SP","5_SP","6_FL","7_SP","8_SP","9_FL","10_SP","11_FL","12_SP"):True,
+                ("1_FL","2_FL","3_SP","4_FL","5_SP","6_FL","7_FL","8_SP","9_SP","10_SP","11_FL","12_SP"):True,
+                ("1_SP","2_FL","3_SP","4_SP","5_FL","6_FL","7_FL","8_SP","9_SP","10_SP","11_FL","12_FL"):True,
+                ("1_SP","2_SP","3_SP","4_FL","5_FL","6_SP","7_FL","8_FL","9_SP","10_FL","11_SP","12_FL"):True
+            }
 
+    """
+    bsdic = {('_FL','_SP','_FL','_FL','_FL','_SP','_FL','_SP','_FL','_SP','_FL','_SP'):True,
+            ('_SP','_FL','_SP','_SP','_FL','_FL','_FL','_FL','_SP','_FL','_FL','_FL'):True
+            }
 
+    methdic = {("C1_FL-2","ST6_FL","C1_SP","ST6_SP","ST1_FL","ST1_SP","C16_FL","C16_SP"):True
+            }
 
-                # analyse this combo (with multithreading):
+    """
+    methdic =   {("C1_FL-2","ST6_FL","C1_SP","ST6_SP","ST1_FL","ST1_SP","C16_FL","C16_SP"):True,
+                    ("C16_SP","C16_FL","ST1_SP","ST1_FL","ST6_SP","C1_SP","ST6_FL","C1_FL-2"):True,
+                    ("C1_FL-2","C1_SP","ST6_FL","ST6_SP","ST1_FL","C16_FL","ST1_SP","C16_SP"):True,
+                    ("C1_SP","C1_FL-2","ST6_SP","ST6_FL","ST1_FL","C16_FL","ST1_SP","C16_SP"):True,
+                    ("C1_FL-2","C1_SP","ST6_FL","ST6_SP","ST1_SP","C16_SP","ST1_FL","C16_FL"):True,
+                    ("C1_SP","C1_FL-2","ST6_SP","ST6_FL","ST1_SP","C16_SP","ST1_FL","C16_FL"):True,
+                    ("C1_SP","ST6_SP","C1_FL-2","ST6_FL","ST1_SP","ST1_FL","C16_SP","C16_FL"):True
+                }
+
+    # for complete assessment of all combinations:
+    """
+    """
+    print "Creating BS permutation dictionary"
+    name_gen_bs = itertools.permutations(['_FL','_FL','_FL','_FL','_FL','_FL','_SP','_SP','_SP','_SP','_SP','_SP'])
+    bsdic = {}
+    for item in name_gen_bs:
+        bsdic[item] = True
+
+    print "Creating Meth permutation dictionary"
+    name_gen_meth = itertools.permutations(['_FL','_FL','_FL','_FL','_SP','_SP','_SP','_SP'])
+    methdic = {}
+    for item in name_gen_meth:
+        methdic[item] = True
+    """
+
+    # assess combinations:
+    t0 = time.time()
+    round = 1
+    smpl_queue = []
+    for smpl_meth in methdic:
+        print "ROUND", round
+        round += 1
+        for smpl_bs in bsdic:
+            bshead = ["".join([a,b]) for a,b in zip(['1','2','3','4','5','6','7','8','9','10','11','12'],smpl_bs)]
+            methhead = ["".join([a,b]) for a,b in zip(['1','2','3','4','5','6','7','8'],smpl_meth)]
+            # build next dataset for analysis
+            icnt += 1
+            p += 1
+            resultfile = outfile[:-4] + str(p) + ".info"
+            smpl_queue.append((bshead, methhead, bsfile, methfile, resultfile, t0, icnt))
+
+            # once there are enough samples for multiprocessing, process together:
+            if len(smpl_queue) >= num_cores:
                 procs = {}
-                for p in range(num_cores):
-                    while proceed(smpl_bs, smpl_meth, record_dict) is False:
-                        try:
-                            smpl_meth = name_gen_meth.next()
-                        except StopIteration:
-                            break
-                    icnt += 1
-                    resultfile = outfile[:-4] + str(p) + ".info"
-                    procs[p] = Process(target=compare_results, args=(smpl_bs, smpl_meth, bsfile, methfile, resultfile, t0, icnt))
+                for p in range(len(smpl_queue)):
                     try:
-                        smpl_meth = name_gen_meth.next()
-                    except StopIteration:
-                        break
-
+                        procs[p] = Process(target=compare_results, args=(smpl_queue[p]))
+                    except Exception as inst:
+                        print inst
+                        pass
 
                 for p in procs:
                     procs[p].start()
 
                 for p in procs:
                     procs[p].join()
+
+                smpl_queue = []
+
+                # print output and estimate time left:
+                t1 = time.time()
+                taken = t1 - t0
+                ave_speed = taken / (icnt)
+                t_remaining = (64680 - icnt) * ave_speed
+                m, s = divmod(t_remaining, 60)
+                h, m = divmod(m, 60)
+                print("%d iterations complete. Approx %d:%d:%d remaining\r" % (icnt, h, m, s))
+
+    else:   # analyse all samples remaining in queue once iterations have completed
+        procs = {}
+        for p in range(len(smpl_queue)):
+            try:
+                procs[p] = Process(target=compare_results, args=(smpl_queue[p]))
+            except Exception as inst:
+                print inst
+                pass
+
+        for p in procs:
+            procs[p].start()
+            print "#",
+
+        for p in procs:
+            procs[p].join()
+            print ".",
+
+
+    """
+    ## the old code ##
+    ## iterate the broodswap samples:
+    for smpl_bs in name_gen_bs:
+        while have_record(smpl_bs, smpl_bs, bs_record):
+            try:
+                name_gen_bs.next()
+            except StopIteration:
+                break
+            itercount += 1
+            if itercount % 1000000 == 0:
+                print "Searched %d permutations so far...\r" % itercount
+
+        name_gen_meth = itertools.permutations(sample_header_meth)
+
+        end_of_round = False
+        print "STARTING ROUND %d" % round
+        round += 1
+
+        ## iterate the methylation samples:
+        for smpl_meth in name_gen_meth:
+            # line up the valid permutations to load into the multiprocess
+            smpl_queue = []
+            p = 0
+            while len(smpl_queue) < num_cores:
+                # find next unsearched permutation:
+                while have_record(smpl_bs, smpl_meth, record_dict):
+                    try:
+                        smpl_meth = name_gen_meth.next()
+                    except StopIteration:
+                        end_of_round = True
+                        print "# End of round"
+                        doneit = False
+                        break
+                else:
+                    doneit = False
+
+                if doneit is False:
+                    icnt += 1
+                    p += 1
+                    resultfile = outfile[:-4] + str(p) + ".info"
+                    smpl_queue.append((smpl_bs, smpl_meth, bsfile, methfile, resultfile, t0, icnt))
+                try:
+                    smpl_meth = name_gen_meth.next()
+                except StopIteration:
+                    print "# End of round. Breaking with %d samples to analyse" % (len(smpl_queue))
+                    break
+
+            if len(smpl_queue) == 0:
+                break
+
+            # analyse permutations:
+            procs = {}
+            for p in range(len(smpl_queue)):
+                try:
+                    procs[p] = Process(target=compare_results, args=(smpl_queue[p]))
+                except Exception as inst:
+                    print inst
+                    pass
+
+            for p in procs:
+                procs[p].start()
+                print "#",
+
+            for p in procs:
+                procs[p].join()
+                print ".",
+
+            if end_of_round:
+                break
+
+    """
 
     # print actual data again at end (to make finding it easier!):
     print sample_header_bs
