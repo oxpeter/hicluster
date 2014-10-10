@@ -16,7 +16,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 import scipy
 from scipy import stats
 
-from genomepy import genematch
+from genomepy import genematch, config
 from matplotlib_venn import venn2, venn3
 import hicluster
 
@@ -29,10 +29,16 @@ def define_arguments():
     parser.add_argument("experiments", metavar='filename', nargs='+', type=str, help="a data file for comparing")
     parser.add_argument("-B", "--background", type=str, help="Provide a file for using as background")
     parser.add_argument("-G", "--genes_only", action='store_true',  help="Turn off pathway comparison (much much faster)")
+    parser.add_argument("-v", "--verbose", action='store_true',default=False,  help="print messages")
+    parser.add_argument("-S", "--show_common", action='store_true',  help="Show all common genes")
 
     return parser
 
 def run_arguments(args):
+
+    verbalise = hicluster.check_verbose(args.verbose)
+
+
     experiments = {} # dictionary to contain the lists of genes
     i = 0
     for file in args.experiments:
@@ -40,8 +46,8 @@ def run_arguments(args):
         i += 1
 
     # check correct number of files supplied:
-    if  2 > len(experiments) > 4:
-        print "can only compare two to four experiments. You supplied %d!" % (len(experiments))
+    if  len(experiments) > 4 or len(experiments) < 2:
+        verbalise("R", "can only compare two to four experiments. You supplied %d!" % (len(experiments)))
         exit()
 
     go_obj = genematch.GO_maker()
@@ -55,7 +61,7 @@ def run_arguments(args):
         if args.genes_only:
             gene_sets['G' + exp] = set(experiments[exp])
         else:
-            print "Collecting paths for geneset", exp
+            verbalise("Y", "Collecting paths for geneset", exp )
 
             # collect pathways and GO terms for each gene:
             gene_pathways[exp]= genematch.cbir_to_pathway(experiments[exp]).values()
@@ -75,16 +81,16 @@ def run_arguments(args):
 
     if args.genes_only:
         if len(experiments) == 3:
-            venn_3way([gene_sets[exp] for exp in gene_sets], [gene_sets[exp] for exp in gene_sets], [exp for exp in gene_sets])
+            venn_3way([gene_sets[exp] for exp in gene_sets], [gene_sets[exp] for exp in gene_sets], [exp for exp in gene_sets], show_common=args.show_common)
         elif len(experiments) == 2:
-            venn_2way([gene_sets[exp] for exp in gene_sets], [gene_sets[exp] for exp in gene_sets], [exp for exp in gene_sets])
+            venn_2way([gene_sets[exp] for exp in gene_sets], [gene_sets[exp] for exp in gene_sets], [exp for exp in gene_sets], show_common=args.show_common)
             set1, set2 = [gene_sets[exp] for exp in gene_sets]
 
             # GO enrichment of common genes:
             pvals = genematch.go_enrichment(set1 & set2)
             if len(pvals) > 2:
                 qvals = hicluster.p_to_q(pvals.values(), display_on=True, cut1s=True)
-                print [qvals[p] for p in qvals if qvals[p] < 0.1]
+                #print [qvals[p] for p in qvals if qvals[p] < 0.1]
 
                 background = hicluster.make_a_list(args.background)
                 screened = [gene for gene in background if gene not in set1 & set2]
@@ -95,35 +101,38 @@ def run_arguments(args):
                 qvalspath = hicluster.p_to_q(pvalpath.values(), display_on=True, cut1s=False, conservative=True)
                 qvalsupper = hicluster.p_to_q(pvalupper.values(), display_on=True, cut1s=False, conservative=True)
 
-                print "### q values of pathways ###"
-                print "\n".join([p + " " + str(qvalspath[p]) for p in qvalspath if qvalspath[p] < 0.1])
-                print "### q values of pathway types ###"
-                print "\n".join([p + " " + str(qvalsupper[p]) for p in qvalsupper if qvalsupper[p] < 0.1])
+                verbalise( "G","### q values of pathways ###")
+                verbalise( "\n".join([p + " " + str(qvalspath[p]) for p in qvalspath if qvalspath[p] < 0.1]))
+                verbalise("G", "### q values of pathway types ###")
+                verbalise( "\n".join([p + " " + str(qvalsupper[p]) for p in qvalsupper if qvalsupper[p] < 0.1]))
 
 
-                print "### p values of pathways ###"
-                print "\n".join([p + " " + str(pvalpath[p]) for p in pvalpath if pvalpath[p] < 0.01])
-                print "### p values of pathway types ###"
-                print "\n".join([p + " " + str(pvalupper[p]) for p in pvalupper if pvalupper[p] < 0.01])
+                verbalise( "G","### p values of pathways ###")
+                verbalise( "\n".join([p + " " + str(pvalpath[p]) for p in pvalpath if pvalpath[p] < 0.05]))
+                verbalise( "G","### p values of pathway types ###")
+                verbalise( "\n".join([p + " " + str(pvalupper[p]) for p in pvalupper if pvalupper[p] < 0.05]))
 
         elif len(experiments) == 4:
-            venn_4by4([gene_sets[exp] for exp in gene_sets], [gene_sets[exp] for exp in gene_sets], [exp for exp in gene_sets])
+            venn_4by4([gene_sets[exp] for exp in gene_sets], [gene_sets[exp] for exp in gene_sets], [exp for exp in gene_sets], show_common=args.show_common)
 
     else:
         if len(experiments) == 3:
-            venn_3way([gene_sets[exp] for exp in gene_sets], [path_sets[exp] for exp in path_sets], [exp for exp in gene_sets])
+            venn_3way([gene_sets[exp] for exp in gene_sets], [path_sets[exp] for exp in path_sets], [exp for exp in gene_sets], show_common=args.show_common)
         elif len(experiments) == 2:
-            venn_2way([gene_sets[exp] for exp in gene_sets], [path_sets[exp] for exp in path_sets], [exp for exp in gene_sets])
+            venn_2way([gene_sets[exp] for exp in gene_sets], [path_sets[exp] for exp in path_sets], [exp for exp in gene_sets], show_common=args.show_common)
         elif len(experiments) == 4:
-            venn_4by4([gene_sets[exp] for exp in gene_sets], [path_sets[exp] for exp in path_sets], [exp for exp in gene_sets])
+            venn_4by4([gene_sets[exp] for exp in gene_sets], [path_sets[exp] for exp in path_sets], [exp for exp in gene_sets], show_common=args.show_common)
 
-def venn_3way(genesets, pathsets, names):
+def venn_3way(genesets, pathsets, names, show_common=False):
     figure, axes = plt.subplots(1, 2)
     v1 = venn3([genesets[0], genesets[1], genesets[2]], (names[0], names[1], names[2]), ax=axes[0])
     v2 = venn3([pathsets[0], pathsets[1], pathsets][2], (names[0], names[1], names[2]), ax=axes[1])
     plt.show()
+    if show_common:
+        for gene in genesets[0] & genesets[1] & genesets[2]:
+            print gene
 
-def venn_4by4(genesets, pathsets, names):
+def venn_4by4(genesets, pathsets, names, show_common=False):
 
     figure, axes = plt.subplots(2, 3)
 
@@ -205,7 +214,7 @@ def venn_4by4(genesets, pathsets, names):
 
     plt.show()
 
-def venn_2way(genesets, pathsets, names):
+def venn_2way(genesets, pathsets, names, show_common=False):
 
     figure, axes = plt.subplots(1,2)
     figure.text(0.45, 0.95, "Overlap of Orthologous Differentially Expressed Genes", ha="center", va="bottom", size="large")
@@ -225,6 +234,18 @@ def venn_2way(genesets, pathsets, names):
     except AttributeError:
         pass
     plt.show()
+
+    if show_common:
+        dbpaths = config.import_paths()
+        ncbi = genematch.cbir_ncbi(list(genesets[0] & genesets[1]), dbpaths=dbpaths)
+
+        for gene in ncbi :
+            if ncbi[gene] == "no NCBI item":
+                print gene
+            else:
+                print ncbi[gene]
+
+
 
 def old():
     figure, axes = plt.subplots(2, 2)
