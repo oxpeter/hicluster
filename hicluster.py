@@ -743,7 +743,7 @@ def verbalise(arg1, *args):
     colordict = {'R':'\x1b[31m', 'G':'\x1b[32m',
          'Y':'\x1b[33m' ,'B':'\x1b[34m', 'M':'\x1b[35m' , 'C':'\x1b[36m' }
     if arg1 in colordict:
-        argstring = " ".join([arg for arg in args])
+        argstring = " ".join([str(arg) for arg in args])
         if sys.stdout.isatty():
             color_code = colordict[arg1]
             end_color = '\x1b[0m'
@@ -2263,6 +2263,8 @@ def make_a_list(geneobj, col_num=0):
 
             for colset in filegen:
                 genelist[colset[col_num]]=1
+    else:
+        genelist = {}
 
     return genelist
 
