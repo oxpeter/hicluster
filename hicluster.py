@@ -2257,12 +2257,15 @@ def make_a_list(geneobj, col_num=0):
             genefile_h = open(geneobj, 'rb')
             genelist = {}   # will be a dict of names { 'Cbir01255':1, 'CbirVgq':1, ... }
                             # used a dictionary to automatically remove any name duplications
-            filegen = [ line.split() for line in genefile_h ]
+            filegen = [ line.split() for line in genefile_h if len(line) > 0]
 
             genefile_h.close()
 
             for colset in filegen:
-                genelist[colset[col_num]]=1
+                try:
+                    genelist[colset[col_num]]=1
+                except IndexError:
+                    verbalise("R", "Column %d not found in %s" % (col_num, str(colset)))
     else:
         genelist = {}
 
