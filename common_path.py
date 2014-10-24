@@ -17,13 +17,13 @@ import scipy
 from scipy import stats
 
 from genomepy import genematch, config
-from matplotlib_venn import venn2, venn3
+from matplotlib_venn import venn2, venn3, venn2_unweighted, venn3_unweighted
 import hicluster
 
 ########################################################################################
 
 def define_arguments():
-    parser = argparse.ArgumentParser(description="Performs heirarchical clustering")
+    parser = argparse.ArgumentParser(description="Performs set analysis on multiple lists and outputs venn diagrams.")
 
     # input options
     parser.add_argument("experiments", metavar='filename', nargs='+', type=str, help="a data file for comparing")
@@ -31,6 +31,8 @@ def define_arguments():
     parser.add_argument("-G", "--genes_only", action='store_true',  help="Turn off pathway comparison (much much faster)")
     parser.add_argument("-v", "--verbose", action='store_true',default=False,  help="print messages")
     parser.add_argument("-S", "--show_common", action='store_true',  help="Show all common genes")
+    parser.add_argument("-U", "--unweighted", action='store_true',  help="draw unweighted circles")
+    parser.add_argument("-C", "--column", type=int, default=0, help="the column to extract data from. (default = 0)")
 
     return parser
 
@@ -42,7 +44,7 @@ def run_arguments(args):
     experiments = {} # dictionary to contain the lists of genes
     i = 0
     for file in args.experiments:
-        experiments[str(i) + '-' + os.path.basename(file)] = hicluster.make_a_list(file)
+        experiments[str(i) + '-' + os.path.basename(file)] = hicluster.make_a_list(file, args.column)
         i += 1
 
     # check correct number of files supplied:
@@ -81,9 +83,9 @@ def run_arguments(args):
 
     if args.genes_only:
         if len(experiments) == 3:
-            venn_3way([gene_sets[exp] for exp in gene_sets], [gene_sets[exp] for exp in gene_sets], [exp for exp in gene_sets], show_common=args.show_common)
+            venn_3way([gene_sets[exp] for exp in gene_sets], [gene_sets[exp] for exp in gene_sets], [exp for exp in gene_sets], show_common=args.show_common, unweighted=args.unweighted)
         elif len(experiments) == 2:
-            venn_2way([gene_sets[exp] for exp in gene_sets], [gene_sets[exp] for exp in gene_sets], [exp for exp in gene_sets], show_common=args.show_common)
+            venn_2way([gene_sets[exp] for exp in gene_sets], [gene_sets[exp] for exp in gene_sets], [exp for exp in gene_sets], show_common=args.show_common, unweighted=args.unweighted)
             set1, set2 = [gene_sets[exp] for exp in gene_sets]
 
             # GO enrichment of common genes:
@@ -113,26 +115,36 @@ def run_arguments(args):
                 verbalise( "\n".join([p + " " + str(pvalupper[p]) for p in pvalupper if pvalupper[p] < 0.05]))
 
         elif len(experiments) == 4:
-            venn_4by4([gene_sets[exp] for exp in gene_sets], [gene_sets[exp] for exp in gene_sets], [exp for exp in gene_sets], show_common=args.show_common)
+            venn_4by4([gene_sets[exp] for exp in gene_sets], [gene_sets[exp] for exp in gene_sets], [exp for exp in gene_sets], show_common=args.show_common, unweighted=args.unweighted)
 
     else:
         if len(experiments) == 3:
-            venn_3way([gene_sets[exp] for exp in gene_sets], [path_sets[exp] for exp in path_sets], [exp for exp in gene_sets], show_common=args.show_common)
+            venn_3way([gene_sets[exp] for exp in gene_sets], [path_sets[exp] for exp in path_sets], [exp for exp in gene_sets], show_common=args.show_common, unweighted=args.unweighted)
         elif len(experiments) == 2:
-            venn_2way([gene_sets[exp] for exp in gene_sets], [path_sets[exp] for exp in path_sets], [exp for exp in gene_sets], show_common=args.show_common)
+            venn_2way([gene_sets[exp] for exp in gene_sets], [path_sets[exp] for exp in path_sets], [exp for exp in gene_sets], show_common=args.show_common, unweighted=args.unweighted)
         elif len(experiments) == 4:
-            venn_4by4([gene_sets[exp] for exp in gene_sets], [path_sets[exp] for exp in path_sets], [exp for exp in gene_sets], show_common=args.show_common)
+            venn_4by4([gene_sets[exp] for exp in gene_sets], [path_sets[exp] for exp in path_sets], [exp for exp in gene_sets], show_common=args.show_common, unweighted=args.unweighted)
 
-def venn_3way(genesets, pathsets, names, show_common=False):
+def venn_3way(genesets, pathsets, names, show_common=False, unweighted=False):
+    if unweighted:
+        draw = venn3_unweighted
+    else:
+        draw = venn3
+
     figure, axes = plt.subplots(1, 2)
-    v1 = venn3([genesets[0], genesets[1], genesets[2]], (names[0], names[1], names[2]), ax=axes[0])
-    v2 = venn3([pathsets[0], pathsets[1], pathsets][2], (names[0], names[1], names[2]), ax=axes[1])
+    v1 = draw([genesets[0], genesets[1], genesets[2]], (names[0], names[1], names[2]), ax=axes[0])
+    v2 = draw([pathsets[0], pathsets[1], pathsets][2], (names[0], names[1], names[2]), ax=axes[1])
     plt.show()
     if show_common:
         for gene in genesets[0] & genesets[1] & genesets[2]:
             print gene
 
-def venn_4by4(genesets, pathsets, names, show_common=False):
+def venn_4by4(genesets, pathsets, names, show_common=False, unweighted=False):
+
+    if unweighted:
+        draw = venn2_unweighted
+    else:
+        draw = venn2
 
     figure, axes = plt.subplots(2, 3)
 
@@ -141,12 +153,12 @@ def venn_4by4(genesets, pathsets, names, show_common=False):
     figure.text(0.05, 0.875, names[1], ha="left", va="bottom", size="medium", color="cyan")
     figure.text(0.05,0.85,names[2], ha="left", va="bottom", size="medium",color="green")
     figure.text(0.05,0.825,names[3], ha="left", va="bottom", size="medium",color="red")
-    v1 = venn2([genesets[0], genesets[1]], set_labels = (names[0][:2],names[1][:2]), ax=axes[0][0])
-    v2 = venn2([genesets[0], genesets[2]], set_labels = (names[0][:2],names[2][:2]), ax=axes[0][1])
-    v3 = venn2([genesets[0], genesets[3]], set_labels = (names[0][:2],names[3][:2]), ax=axes[0][2])
-    v4 = venn2([genesets[1], genesets[2]], set_labels = (names[1][:2],names[2][:2]), ax=axes[1][0])
-    v5 = venn2([genesets[1], genesets[3]], set_labels = (names[1][:2],names[3][:2]), ax=axes[1][1])
-    v6 = venn2([genesets[2], genesets[3]], set_labels = (names[2][:2],names[3][:2]), ax=axes[1][2])
+    v1 = draw([genesets[0], genesets[1]], set_labels = (names[0][:2],names[1][:2]), ax=axes[0][0])
+    v2 = draw([genesets[0], genesets[2]], set_labels = (names[0][:2],names[2][:2]), ax=axes[0][1])
+    v3 = draw([genesets[0], genesets[3]], set_labels = (names[0][:2],names[3][:2]), ax=axes[0][2])
+    v4 = draw([genesets[1], genesets[2]], set_labels = (names[1][:2],names[2][:2]), ax=axes[1][0])
+    v5 = draw([genesets[1], genesets[3]], set_labels = (names[1][:2],names[3][:2]), ax=axes[1][1])
+    v6 = draw([genesets[2], genesets[3]], set_labels = (names[2][:2],names[3][:2]), ax=axes[1][2])
     v1.get_patch_by_id('10').set_color('yellow')
     v2.get_patch_by_id('10').set_color('yellow')
     v3.get_patch_by_id('10').set_color('yellow')
@@ -183,12 +195,12 @@ def venn_4by4(genesets, pathsets, names, show_common=False):
     figure.text(0.05,0.85,names[2], ha="left", va="bottom", size="medium",color="green")
     figure.text(0.05,0.825,names[3], ha="left", va="bottom", size="medium",color="red")
 
-    v1 = venn2([pathsets[0], pathsets[1]], set_labels = (names[0][:2],names[1][:2]), ax=axes[0][0])
-    v2 = venn2([pathsets[0], pathsets[2]], set_labels = (names[0][:2],names[2][:2]), ax=axes[0][1])
-    v3 = venn2([pathsets[0], pathsets[3]], set_labels = (names[0][:2],names[3][:2]), ax=axes[0][2])
-    v4 = venn2([pathsets[1], pathsets[2]], set_labels = (names[1][:2],names[2][:2]), ax=axes[1][0])
-    v5 = venn2([pathsets[1], pathsets[3]], set_labels = (names[1][:2],names[3][:2]), ax=axes[1][1])
-    v6 = venn2([pathsets[2], pathsets[3]], set_labels = (names[2][:2],names[3][:2]), ax=axes[1][2])
+    v1 = draw([pathsets[0], pathsets[1]], set_labels = (names[0][:2],names[1][:2]), ax=axes[0][0])
+    v2 = draw([pathsets[0], pathsets[2]], set_labels = (names[0][:2],names[2][:2]), ax=axes[0][1])
+    v3 = draw([pathsets[0], pathsets[3]], set_labels = (names[0][:2],names[3][:2]), ax=axes[0][2])
+    v4 = draw([pathsets[1], pathsets[2]], set_labels = (names[1][:2],names[2][:2]), ax=axes[1][0])
+    v5 = draw([pathsets[1], pathsets[3]], set_labels = (names[1][:2],names[3][:2]), ax=axes[1][1])
+    v6 = draw([pathsets[2], pathsets[3]], set_labels = (names[2][:2],names[3][:2]), ax=axes[1][2])
     v1.get_patch_by_id('10').set_color('yellow')
     v2.get_patch_by_id('10').set_color('yellow')
     v3.get_patch_by_id('10').set_color('yellow')
@@ -214,15 +226,19 @@ def venn_4by4(genesets, pathsets, names, show_common=False):
 
     plt.show()
 
-def venn_2way(genesets, pathsets, names, show_common=False):
+def venn_2way(genesets, pathsets, names, show_common=False, unweighted=False):
+    if unweighted:
+        draw = venn2_unweighted
+    else:
+        draw = venn2
 
     figure, axes = plt.subplots(1,2)
     figure.text(0.45, 0.95, "Overlap of Orthologous Differentially Expressed Genes", ha="center", va="bottom", size="large")
     figure.text(0.05, 0.9, names[0], ha="left", va="bottom", size="medium",color="red")
     figure.text(0.05, 0.875, names[1], ha="left", va="bottom", size="medium", color="cyan")
 
-    v1 = venn2([genesets[0], genesets[1]], set_labels = (names[0][:2],names[1][:2]), ax=axes[0])
-    v2 = venn2([pathsets[0], pathsets[1]], set_labels = (names[0][:2],names[1][:2]), ax=axes[1])
+    v1 = draw([genesets[0], genesets[1]], set_labels = (names[0][:2],names[1][:2]), ax=axes[0])
+    v2 = draw([pathsets[0], pathsets[1]], set_labels = (names[0][:2],names[1][:2]), ax=axes[1])
 
     v1.get_patch_by_id('10').set_color('red')
     v2.get_patch_by_id('10').set_color('red')
