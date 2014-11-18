@@ -22,7 +22,7 @@ from operator import itemgetter
 from itertools import chain, repeat
 
 
-import pylab
+
 import numpy
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
@@ -2092,6 +2092,9 @@ def expression_peaks(cluster, magnitude, group1 = [ "SP", "SL06", "SL12", "SL24"
     values lie with 2-50% of max expression value. Returns all genes that fit this
     pattern.
     Assumes first timepoint in each group is a control
+
+    Instead of looking for fold change, this function now looks at the difference in
+    peak size - this is a more appropriate metric for log-transformed data.
     """
     if cluster.averaged == False:
         cluster.average_matrix(group1 + group2)
@@ -2105,10 +2108,12 @@ def expression_peaks(cluster, magnitude, group1 = [ "SP", "SL06", "SL12", "SL24"
         maxposn = datalist.index(maxexpression)
 
         # check fold change is sufficient:
-        if maxexpression >= magnitude * datalist[0]:
+        if maxexpression >= magnitude + datalist[0]:
             # check adjacent peaks are not too big:
+            # difference of 5.64 corresponds to 2% of the untransformed fpkm value
+            # difference of 1.00 corresponds to 50% of the untransformed fpkm value
             if maxposn == len(group1) - 1:
-                if (maxexpression * 0.02 < datalist[maxposn - 1] < maxexpression * 0.5):
+                if (maxexpression - 5.64 < datalist[maxposn - 1] < maxexpression - 1):
                     peaklist[cluster.gene_header[gene]] = group1[maxposn]
 
             elif (maxexpression * 0.02 < datalist[maxposn - 1] < maxexpression * 0.5) and \
@@ -2140,7 +2145,7 @@ def expression_peaks(cluster, magnitude, group1 = [ "SP", "SL06", "SL12", "SL24"
     verbalise("G", len(peaklist),  "significant peaks found.")
     return peaklist
 
-def p_to_q(pvalues, display_on=False, cut1s=False, conservative=False):
+def p_to_q(pvalues, display_on=False, cut1s=False, set_pi_hat=False):
     """
     Given the list of pvalues, convert to pFDR q-values.
     According to Storey and Tibshirani (2003) PNAS 100(16) : 9440
@@ -2181,8 +2186,8 @@ def p_to_q(pvalues, display_on=False, cut1s=False, conservative=False):
         pi0_hat_half = interpolate.splev(1, tck_half, der=0)
         pi0_hat = pi0_hat_half
         verbalise("R", "pi0_hat > 1! Likely skewed P-value distribution. Converting to ", pi0_hat_half)
-    if conservative:
-        pi0_hat = 1
+    if set_pi_hat:
+        pi0_hat = set_pi_hat
     if display_on:
         fig = plt.figure()
         ax1 = fig.add_subplot(111)
