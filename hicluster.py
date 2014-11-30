@@ -606,9 +606,9 @@ class Cluster(object):
                     "FP06", "FP12", "FP24","FP48", "FP96", "FL"])
         
         intervals = zip(limits[:-1],limits[1:])
-        ave = [ numpy.average(self.data_matrix[ limits[i]:limits[j],pos ]) for eachtuple in intervals for i,j in eachtuple] 
+        ave = [ numpy.average(self.data_matrix[ limits[i]:limits[j],pos ]) for i,j in intervals] 
 
-        stdev = [ numpy.std(self.data_matrix[ limits[i]:limits[j],pos ]) for eachtuple in intervals for i,j in eachtuple]
+        stdev = [ numpy.std(self.data_matrix[ limits[i]:limits[j],pos ]) for i,j in intervals]
 
         return ave, stdev
         
