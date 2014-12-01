@@ -1463,7 +1463,7 @@ def analyse_pca(cluster, three_dim=True):
     ############# PCA using numpy SVD decomposition ##################################
     print "#" * 30
     print "SVA analysis"
-    U, s, Vt = numpy.linalg.svd(matrix, full_matrices=True)
+    U, s, Vt = numpy.linalg.svd(A, full_matrices=True)
     V = Vt.T
 
     # sort the PCs by descending order of the singular values (i.e. by the
