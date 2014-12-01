@@ -592,6 +592,32 @@ class Cluster(object):
 
         return limits
 
+    def get_stats(self, gene, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96","FP06", "FP12", "FP24","FP48", "FP96", "FL"]):
+        """
+        For the given gene, returns lists of mean and standard deviation for each group.
+        """
+        
+        try:
+            pos = self.gene_header.index(gene)
+        except:
+            return [],[]
+                
+        limits = [0] + self.reorder_matrix(groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96",\
+                    "FP06", "FP12", "FP24","FP48", "FP96", "FL"])
+        #print limits        
+        intervals = zip(limits[:-1],limits[1:])
+        print "Debugging: ave and stdev:-"
+        #print intervals
+        #print self.data_matrix
+        #print self.data_matrix[:,pos]
+        #print [ (self.data_matrix[ i:j,pos ]) for i,j in intervals]
+        ave = [ numpy.average(self.data_matrix[ i:j,pos ]) for i,j in intervals] 
+        print ave
+        stdev = [ numpy.std(self.data_matrix[ i:j,pos ]) for i,j in intervals]
+        print stdev
+        return ave, stdev
+        
+
     def average_matrix(self, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96","FP06", "FP12", "FP24","FP48", "FP96", "FL"]):
         """for each group in variable groups, calculates the average value in the matrix, and
         creates a new matrix showing average values"""

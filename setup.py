@@ -2,7 +2,7 @@
 
 from distutils.core import setup
 
-setup(name='hicluster',
+setup(name='hicluster_mods',
       version='2.0',
       description='hicluster package for RNA Sequencing analysis',
       author='Peter Oxley',
