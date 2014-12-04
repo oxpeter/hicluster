@@ -596,27 +596,27 @@ class Cluster(object):
         """
         For the given gene, returns lists of mean and standard deviation for each group.
         """
-        
+
         try:
             pos = self.gene_header.index(gene)
         except:
             return [],[]
-                
+
         limits = [0] + self.reorder_matrix(groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96",\
                     "FP06", "FP12", "FP24","FP48", "FP96", "FL"])
-        #print limits        
+        #print limits
         intervals = zip(limits[:-1],limits[1:])
         print "Debugging: ave and stdev:-"
         #print intervals
         #print self.data_matrix
         #print self.data_matrix[:,pos]
         #print [ (self.data_matrix[ i:j,pos ]) for i,j in intervals]
-        ave = [ numpy.average(self.data_matrix[ i:j,pos ]) for i,j in intervals] 
+        ave = [ numpy.average(self.data_matrix[ i:j,pos ]) for i,j in intervals]
         print ave
         stdev = [ numpy.std(self.data_matrix[ i:j,pos ]) for i,j in intervals]
         print stdev
         return ave, stdev
-        
+
 
     def average_matrix(self, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96","FP06", "FP12", "FP24","FP48", "FP96", "FL"]):
         """for each group in variable groups, calculates the average value in the matrix, and
@@ -1627,26 +1627,18 @@ def degs_anova(cluster, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96", "FL
         cluster.invert_matrix()
         revert = True
 
-
-    limits = cluster.reorder_matrix(groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96","FP06", "FP12", "FP24","FP48", "FP96", "FL"])
     A_dict = {}
 
-    ### replace with the following code:
-    """
-    # try this code for flexible group size:
-    for g in range(cluster.genenumber):
-        exvalues = [cluster.datamatrix[limits[x]:limits[x+1],g] for x in range(len(limits) - 1)]
-    """
+    # set the positions at which group membership changes:
+    limits = [0] + cluster.reorder_matrix(groups=groups)
+    intervals = zip(limits[:-1],limits[1:])
+
+
     if onegene:
         try:
             g = cluster.gene_header.index(onegene)
-            f_val, p_val = stats.f_oneway(cluster.data_matrix[:limits[0],g],\
-                cluster.data_matrix[limits[0]:limits[1],g], cluster.data_matrix[limits[1]:limits[2],g],\
-                cluster.data_matrix[limits[2]:limits[3],g], cluster.data_matrix[limits[3]:limits[4],g],\
-                cluster.data_matrix[limits[4]:limits[5],g], cluster.data_matrix[limits[5]:limits[6],g],\
-                cluster.data_matrix[limits[6]:limits[7],g], cluster.data_matrix[limits[7]:limits[8],g],\
-                cluster.data_matrix[limits[8]:limits[9],g], cluster.data_matrix[limits[9]:limits[10],g],\
-                cluster.data_matrix[limits[10]:limits[11],g])
+            expn_data = [ (cluster.data_matrix[ i:j,g ]) for i,j in intervals]
+            f_val, p_val = stats.f_oneway(*expn_data)
             A_dict[cluster.gene_header[g]] = p_val
         except:
             if verbose:
@@ -1655,13 +1647,8 @@ def degs_anova(cluster, groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96", "FL
         verbalise("Y", "Performing ANOVA for %d genes" % (cluster.genenumber))
         #print "limits for anova:",limits
         for g in range(cluster.genenumber):
-            f_val, p_val = stats.f_oneway(cluster.data_matrix[:limits[0],g],\
-                cluster.data_matrix[limits[0]:limits[1],g], cluster.data_matrix[limits[1]:limits[2],g],\
-                cluster.data_matrix[limits[2]:limits[3],g], cluster.data_matrix[limits[3]:limits[4],g],\
-                cluster.data_matrix[limits[4]:limits[5],g], cluster.data_matrix[limits[5]:limits[6],g],\
-                cluster.data_matrix[limits[6]:limits[7],g], cluster.data_matrix[limits[7]:limits[8],g],\
-                cluster.data_matrix[limits[8]:limits[9],g], cluster.data_matrix[limits[9]:limits[10],g],\
-                cluster.data_matrix[limits[10]:limits[11],g])
+            expn_data = [ (cluster.data_matrix[ i:j,g ]) for i,j in intervals]
+            f_val, p_val = stats.f_oneway(*expn_data)
             A_dict[cluster.gene_header[g]] = p_val
 
 
