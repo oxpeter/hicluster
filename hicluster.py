@@ -602,8 +602,7 @@ class Cluster(object):
         except:
             return [],[]
 
-        limits = [0] + self.reorder_matrix(groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96",\
-                    "FP06", "FP12", "FP24","FP48", "FP96", "FL"])
+        limits = [0] + self.reorder_matrix(groups=groups)
         #print limits
         intervals = zip(limits[:-1],limits[1:])
         print "Debugging: ave and stdev:-"
@@ -628,8 +627,7 @@ class Cluster(object):
             self.invert_matrix()
             revert = True
 
-        limits = self.reorder_matrix(groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96",\
-                    "FP06", "FP12", "FP24","FP48", "FP96", "FL"])
+        limits = self.reorder_matrix(groups=groups)
 
         v = numpy.ones((len(groups),self.genenumber)) # create new array of size (y groups) and (n genes)
 
@@ -713,54 +711,94 @@ class Cluster(object):
 def define_arguments():
     parser = argparse.ArgumentParser(description="Performs heirarchical clustering")
 
-    # input options
+    ### input options ###
     parser.add_argument("-D", "--data_file", type=str, help="The data file for analysing")
-    parser.add_argument("-B", "--build_table", type=str, dest="build_list", default=None, help="Provide a comma-delimited list of cufflinks files with which to build the fpkm table for analysis.")
-    parser.add_argument("-T", "--genes_as_rows", action='store_true',  help="Select if top row of data file is sample names")
-    # output options
-    parser.add_argument("-o", "--output_file", dest='filename', type=str, default=None, help="output file path and root name for results")
-    parser.add_argument("-e", "--export_table", action='store_true', help="export transformed expression matrix")
-    parser.add_argument("-v", "--verbose", action='store_true', help="print descriptive output while processing")
-    # analysis options
-    parser.add_argument("--no_clustering", action='store_true', help="Turn of clustering. Performs data transformation, filtering and analysis, then exits")
-    parser.add_argument("-R", "--sample_method", type=str, default='complete', help="The clustering method for samples \n(single, average, complete, etc)")
-    parser.add_argument("-G", "--gene_method", type=str, default='complete', help="The clustering method for genes \n(single, average, complete, weighted, ward, centroid, etc)")
-    parser.add_argument("-r", "--sample_metric", type=str, default='correlation', help="The distance metric for samples \n(euclidean, correlation, cosine, manhattan, etc)")
-    parser.add_argument("-g", "--gene_metric", type=str, default='correlation', help="The distance metric for genes \n(euclidean, correlation, manhattan, etc)")
-    parser.add_argument("-P", "--pca", action='store_true',  help="Performs principal component analysis.")
-    parser.add_argument("-a", "--anova", type=float,  help="Perform ANOVA on 10 groups, and report genes with q-value less than value specified")
-    parser.add_argument("-A", "--filter_anova", type=float, help="Perform ANOVA and filter genes to keep only those with q-value less than value given")
-    parser.add_argument("-s", "--t_test", type=float,  help="Perform student's t-test on two groups, and report genes with q-value less than value specified")
-    parser.add_argument("-S", "--filter_t", type=float, dest="ttest_thresh", help="Perform student's t-test and filter genes to keep only those with q-value less than value given")
-    parser.add_argument("-K", "--kegg", type=float, help="Perform KEGG pathway enrichment analysis on gene clusters. Outputs KEGG terms less than specified q-value")
-    parser.add_argument("-E", "--go_enrichment", type=float, help="Perform GO term enrichment analysis on gene clusters. Outputs GO terms less than specified q-value")
-    parser.add_argument("--neighbours", type=str, help="returns a list of the N closest neighbours to specified genes.")
-    parser.add_argument("-N", "--num_neighbours", type=int, default=10, help="specify the number of nearest neighbours to return. Default is 10.")
+    parser.add_argument("-B", "--build_table", type=str, dest="build_list",
+                        default=None, help="Provide a comma-delimited list of cufflinks files with which to build the fpkm table for analysis.")
+    parser.add_argument("-T", "--genes_as_rows", action='store_true',
+                        help="Select if top row of data file is sample names")
+    ### output options ###
+    parser.add_argument("-o", "--output_file", dest='filename', type=str, default=None,
+                        help="output file path and root name for results")
+    parser.add_argument("-e", "--export_table", action='store_true',
+                        help="export transformed expression matrix")
+    parser.add_argument("-v", "--verbose", action='store_true',
+                        help="print descriptive output while processing")
+    ### analysis options ###
+    parser.add_argument("--groups", type=str,
+                        default='SP,SL06,SL12,SL24,SL48,SL96,FL,FP06,FP12,FP24,FP48,FP96',
+                        help="comma delimited list of (regex) groups for categorising samples.")
+    parser.add_argument("--no_clustering", action='store_true',
+                        help="Turn of clustering. Performs data transformation, filtering and analysis, then exits")
+    parser.add_argument("-R", "--sample_method", type=str, default='complete',
+            help="The clustering method for samples \n(single, average, complete, etc)")
+    parser.add_argument("-G", "--gene_method", type=str, default='complete',
+                        help="The clustering method for genes \n(single, average, complete, weighted, ward, centroid, etc)")
+    parser.add_argument("-r", "--sample_metric", type=str, default='correlation',
+        help="The distance metric for samples \n(euclidean, correlation, cosine, manhattan, etc)")
+    parser.add_argument("-g", "--gene_metric", type=str, default='correlation',
+        help="The distance metric for genes \n(euclidean, correlation, manhattan, etc)")
+    parser.add_argument("-P", "--pca", action='store_true',
+                        help="Performs principal component analysis.")
+    parser.add_argument("-a", "--anova", type=float,
+        help="Perform ANOVA on 10 groups, and report genes with q-value less than value specified")
+    parser.add_argument("-A", "--filter_anova", type=float,
+        help="Perform ANOVA and filter genes to keep only those with q-value less than value given")
+    parser.add_argument("-s", "--t_test", type=float,
+                        help="Perform student's t-test on two groups, and report genes with q-value less than value specified")
+    parser.add_argument("-S", "--filter_t", type=float, dest="ttest_thresh",
+                        help="Perform student's t-test and filter genes to keep only those with q-value less than value given")
+    parser.add_argument("-K", "--kegg", type=float,
+                        help="Perform KEGG pathway enrichment analysis on gene clusters. Outputs KEGG terms less than specified q-value")
+    parser.add_argument("-E", "--go_enrichment", type=float,
+                        help="Perform GO term enrichment analysis on gene clusters. Outputs GO terms less than specified q-value")
+    parser.add_argument("--neighbours", type=str,
+                        help="returns a list of the N closest neighbours to specified genes.")
+    parser.add_argument("-N", "--num_neighbours", type=int, default=10,
+                        help="specify the number of nearest neighbours to return. Default is 10.")
     parser.add_argument("--GSEA", type=int, help='performs gene set enrichment analysis')
-    parser.add_argument("--processes", type=int, default=1, help="specify the number of processes to split the permutations over. Default is 1")
-    parser.add_argument("--irizarry", action='store_true', help="performs gene set enrichment analysis according to Irizarry's scale sensitive chi square statistic")
-    parser.add_argument("--irizarry_z", action='store_true', help="performs gene set enrichment analysis according to Irizarry's z statistic")
-    # viewing options
-    parser.add_argument("-c", "--color_gradient", type=str, dest="color_gradient", default='red_white_blue', help="The colour scheme \n(red_white_blue, red_black_sky, red_black_blue, \nred_black_green, yellow_black_blue, seismic, \ngreen_white_purple, coolwarm)")
-    parser.add_argument("-d", "--distribution", action='store_true', default=False, help="Shows FPKM distribution of each sample before and after normalisation")
-    parser.add_argument("--display_off", action='store_true', help="Turn of displaying of clustering")
-    parser.add_argument("--display_reverse", action='store_true', help="Switch gene and sample axes on graphs")
-    parser.add_argument("--bar_charts", type=str, help="List of genes for which you wish to create column graphs of average gene expression for.")
-    # filtering options
-    parser.add_argument("-m", "--magnitude", type=float, dest="filter", default=2.5, help="Filters out genes with magnitude of range less than value given. Default = 1.13")
+    parser.add_argument("--processes", type=int, default=1,
+            help="specify the number of processes to split the permutations over. Default is 1")
+    parser.add_argument("--irizarry", action='store_true',
+                        help="performs gene set enrichment analysis according to Irizarry's scale sensitive chi square statistic")
+    parser.add_argument("--irizarry_z", action='store_true',
+                help="performs gene set enrichment analysis according to Irizarry's z statistic")
+    ### viewing options ###
+    parser.add_argument("-c", "--color_gradient", type=str, dest="color_gradient",
+                        default='red_white_blue', help="The colour scheme \n(red_white_blue, red_black_sky, red_black_blue, \nred_black_green, yellow_black_blue, seismic, \ngreen_white_purple, coolwarm)")
+    parser.add_argument("-d", "--distribution", action='store_true', default=False,
+                    help="Shows FPKM distribution of each sample before and after normalisation")
+    parser.add_argument("--display_off", action='store_true',
+                        help="Turn of displaying of clustering")
+    parser.add_argument("--display_reverse", action='store_true',
+                        help="Switch gene and sample axes on graphs")
+    parser.add_argument("--bar_charts", type=str,
+    help="List of genes for which you wish to create column graphs of average gene expression for.")
+    ### filtering options ###
+    parser.add_argument("-m", "--magnitude", type=float, dest="filter", default=2.5,
+        help="Filters out genes with magnitude of range less than value given. Default = 1.13")
     parser.add_argument("-L", "--gene_list", type=str, dest="gene_list", default=None, help="Allows provision of a file containing a list of genes for inclusion in the clustering (ie, will filter out all genes NOT in the list provided). Otherwise, all genes will be included.")
-    parser.add_argument("-p", "--fpkm_max", type=float, dest="fpkm_max", default=1000000, help="Filters out genes with maximum fpkm greater than value given. Default = 1 000 000")
-    parser.add_argument("-q", "--fpkm_min", type=int, dest="fpkm_min", default=10, help="Filters out genes with maximum fpkm less than value given. Default = 10")
+    parser.add_argument("-p", "--fpkm_max", type=float, dest="fpkm_max", default=1000000,
+        help="Filters out genes with maximum fpkm greater than value given. Default = 1 000 000")
+    parser.add_argument("-q", "--fpkm_min", type=int, dest="fpkm_min", default=10,
+        help="Filters out genes with maximum fpkm less than value given. Default = 10")
     parser.add_argument("-f", "--filter_off", action='store_true', help="Turns off filtering based on expression value. ")
     parser.add_argument("--kill_PC1", action='store_true', help="removes first principal component")
-    parser.add_argument("--expression_peaks", type=float, help="finds genes with singular timepoint peaks of magnitude n greater than control timepoint")
-    # data transform options
-    parser.add_argument("--randomise_samples", action='store_true', default=False, help="Randomises samples immediately after cluster creation")
-    parser.add_argument("-t", "--transform_off", action='store_true', default=False, help="Turns off log2(FPKM + 1) transformation (prior to normalisation if selected).")
-    parser.add_argument("-n", "--normalise_off", action='store_true', default=False, help="Turns off normalisation. Normalises by dividing by the standard deviation.")
-    parser.add_argument("-u", "--centering_off", action='store_true', default=False, help="Turns off gene centering. Centering subtracts the mean from all values for a gene, giving mean = 0.")
-    parser.add_argument("-X", "--sample_norm", action='store_true', help='Normalises samples instead of genes')
-    parser.add_argument("--show_averages", action='store_true', help="Calculates the average value for each group and clusters based on this new matrix")
+    parser.add_argument("--expression_peaks", type=float,
+    help="finds genes with singular timepoint peaks of magnitude n greater than control timepoint")
+    ### data transform options ###
+    parser.add_argument("--randomise_samples", action='store_true', default=False,
+                        help="Randomises samples immediately after cluster creation")
+    parser.add_argument("-t", "--transform_off", action='store_true', default=False,
+            help="Turns off log2(FPKM + 1) transformation (prior to normalisation if selected).")
+    parser.add_argument("-n", "--normalise_off", action='store_true', default=False,
+            help="Turns off normalisation. Normalises by dividing by the standard deviation.")
+    parser.add_argument("-u", "--centering_off", action='store_true', default=False,
+                        help="Turns off gene centering. Centering subtracts the mean from all values for a gene, giving mean = 0.")
+    parser.add_argument("-X", "--sample_norm", action='store_true',
+                        help='Normalises samples instead of genes')
+    parser.add_argument("--show_averages", action='store_true',
+                        help="Calculates the average value for each group and clusters based on this new matrix")
 
     return parser
 
@@ -876,6 +914,9 @@ def run_arguments(args):
 
     ####### ANALYSIS OPTIONS ##############
 
+    ## Define groups for t-test/ANOVA etc
+    groups = args.groups.split(',')
+
     ## Gene Set Enrichment Analysis (cf Subramanian et al. (2005) PNAS 102(43)
     if args.GSEA:
         nes, pvalues, qvalues = gene_set_enrichment(cluster, permutations=args.GSEA, processes=args.processes, display_on=not(args.display_off))
@@ -899,7 +940,7 @@ def run_arguments(args):
 
     if args.irizarry:
         print "Calculating Irizarry gene enrichment..."
-        t_dict = find_degs(cluster, group1="_FL", group2="_SP")
+        t_dict = find_degs(cluster, groups=groups)
         pvalues = {}
         paths = {}
         print "Calculating pathway enrichment scores..."
@@ -919,7 +960,7 @@ def run_arguments(args):
 
     if args.irizarry_z:
         print "Calculating Irizarry gene enrichment..."
-        t_dict = find_degs(cluster, group1="_FL", group2="_SP")
+        t_dict = find_degs(cluster, groups=groups)
         #s_dict = signal_to_noise(cluster)
         pvalues = {}
         paths = {}
@@ -956,7 +997,7 @@ def run_arguments(args):
 
     ## ANOVA analysis
     if args.filter_anova:
-        a_dict = degs_anova(cluster)
+        a_dict = degs_anova(cluster, groups=groups)
         # collect q-values:
         q_dict = p_to_q(a_dict.values(), display_on=not(args.display_off))
 
@@ -972,7 +1013,7 @@ def run_arguments(args):
         print "Filtering matrix to %d genes with ANOVA P-value less than %.4f" % (len(a_list), args.filter_anova)
         cluster.filter_genes(a_list)
     elif args.anova:
-        a_dict = degs_anova(cluster)
+        a_dict = degs_anova(cluster, groups=groups)
         q_dict = p_to_q(a_dict.values(), display_on=not(args.display_off))
         out_h = open(filename[:-4] + ".ANOVA.list", 'w')
         out_h.write('Gene                p-value q-value\n')
@@ -983,7 +1024,7 @@ def run_arguments(args):
 
     ## t-test analysis
     if args.ttest_thresh:
-        t_dict = find_degs(cluster, group1='_FL', group2='_SP')
+        t_dict = find_degs(cluster, groups=groups)
         q_dict = p_to_q([v[1] for v in t_dict.values()], display_on=not(args.display_off))
         # report output to file:
         t_list = []
@@ -997,7 +1038,7 @@ def run_arguments(args):
         print "Filtering matrix to %d genes with t-test P-value less than %.2f" % (len(t_list),args.ttest_thresh)
         cluster.filter_genes(t_list)
     elif args.t_test:
-        t_dict = find_degs(cluster)
+        t_dict = find_degs(cluster, groups=groups)
         q_dict = p_to_q([v[1] for v in t_dict.values()], display_on=not(args.display_off))
         out_h = open(filename[:-4] + ".t_test.list", 'w')
         out_h.write('%-12s %-7s %-7s\n' % ('Gene','p-value', 'q-value'))
@@ -1024,7 +1065,7 @@ def run_arguments(args):
     if args.bar_charts:
         genelist = make_a_list(args.bar_charts, col_num=0)
         print "Constructing bar charts for %d genes: %s" % ( len(genelist), " ".join(genelist))
-        bar_charts(cluster, genelist)
+        bar_charts(cluster, genelist, groups=groups)
 
     ### re-format for publication purposes:
     ## transpose so genes are on y-axis:
@@ -1033,8 +1074,7 @@ def run_arguments(args):
 
     ## display average values for each group instead of individual values
     if args.show_averages is True:
-        cluster.average_matrix(groups=["SP", "SL06", "SL12", "SL24","SL48", "SL96",
-                                "FL", "FP06", "FP12", "FP24","FP48", "FP96"])
+        cluster.average_matrix(groups=groups)
 
 
     ################ perform hierarchical clustering ####################
@@ -1602,12 +1642,13 @@ def expression_dist(cluster, max_x=500, min_x=0, hist=False):
         plt.setp(labels, rotation=90)
         plt.show()
 
-def find_degs(cluster, group1="_FL", group2="_SP"):
+def find_degs(cluster, groups=["_FL","_SP"]):
     "finds DEGs using t-test and returns dictionary { Gene:t-value, P-value }"
 
-    limits = [0] + cluster.reorder_matrix(groups=[group1,group2])
+    limits = [0] + cluster.reorder_matrix(groups=groups)
     t_dict = {}
-
+    if len(limits) > 3:
+        verbalise("R", "%d groups were specified. Only the first two will be compared in this t-test. Consider using ANOVA instead" % (len(limits)-1))
     verbalise("Y", "Performing t-test")
 
     for g in range(cluster.genenumber):
@@ -2021,7 +2062,7 @@ def bar_charts(cluster, genelist, groups=["SP", "SL06", "SL12", "SL24","SL48", "
         # get gene details for later use:
         ignore, kotermdic = genematch.cbir_to_kegg([gene],reversedic=True)
 
-        anova = degs_anova(cluster, onegene=gene)
+        anova = degs_anova(cluster, onegene=gene, groups=groups)
 
         try:
             koterm = kotermdic[gene]
