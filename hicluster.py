@@ -1029,7 +1029,7 @@ def run_arguments(args):
         # report output to file:
         t_list = []
         out_h = open(filename[:-4] + ".t_test.list", 'w')
-        out_h.write('%-12s %-7s %-7s\n' % ('Gene','p-value', 'q-value'))
+        out_h.write('%-12s %-7s %-7s %s\n' % ('Gene','p-value', 'q-value', 'difference'))
         for gene in t_dict:
             if q_dict[t_dict[gene][1]] <= args.ttest_thresh:
                 out_h.write( "%-12s %7.4f %.4f %.1f\n" % (gene, t_dict[gene][1],  q_dict[t_dict[gene][1]], t_dict[gene][2]))
@@ -1041,10 +1041,10 @@ def run_arguments(args):
         t_dict = find_degs(cluster, groups=groups)
         q_dict = p_to_q([v[1] for v in t_dict.values()], display_on=not(args.display_off))
         out_h = open(filename[:-4] + ".t_test.list", 'w')
-        out_h.write('%-12s %-7s %-7s\n' % ('Gene','p-value', 'q-value'))
+        out_h.write('%-12s %-7s %-7s %s\n' % ('Gene','p-value', 'q-value', 'difference'))
         for gene in t_dict:
             if q_dict[t_dict[gene][1]] <= args.t_test:
-                out_h.write( "%-12s %7.4f %.4f\n" % (gene, t_dict[gene][1],  q_dict[t_dict[gene][1]]))
+                out_h.write( "%-12s %7.4f %.4f %.2f\n" % (gene, t_dict[gene][1],  q_dict[t_dict[gene][1]], t_dict[gene][2]))
         out_h.close()
 
     ## report nearest neighbours:
@@ -1279,10 +1279,10 @@ def heatmap(cluster, display=True,kegg=False, go=False):
         for group in genelistd:
             out_h.write('%s\n' % ("#" * 15))
             gops = genematch.go_enrichment(genelistd[group])
-            qvalues = p_to_q(gops.values(), display_on=False)
+            qvalues = p_to_q([val[0] for val in gops.values()], display_on=False)
             for goterm in gops:
-                if qvalues[gops[goterm]] <= go:
-                    out_h.write( "%-4s %-11s %.5f %.5f %s\n" % (group, goterm, gops[goterm], qvalues[gops[goterm]], str(go_monster.define_go(goterm))) )
+                if qvalues[gops[goterm][0]] <= go:
+                    out_h.write( "%-4s %-11s %.5f %.5f %s\n" % (group, goterm, gops[goterm][0], qvalues[gops[goterm][0]], str(go_monster.define_go(goterm))) )
                     # modify gene header by appending go term to gene name
                     even_newer_header = new_column_header
                     new_column_header[:] = [ appendgo(geneid, goterm, go_monster) for geneid in new_column_header ]
